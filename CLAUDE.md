@@ -15,11 +15,17 @@ pip install -r requirements.txt
 # Initial setup
 python src/setup.py
 
+# Setup notifications (interactive)
+setup_notifications.bat
+
 # Run GUI application
 python src/gui/main_window.py
 
 # Start monitoring daemon
 python src/main.py --daemon
+
+# Test notifications
+python src/alert_manager.py
 
 # Run tests (when implemented)
 python -m pytest tests/

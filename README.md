@@ -43,6 +43,9 @@
 # Windows
 setup.bat
 
+# 通知設定（対話式）
+setup_notifications.bat
+
 # Linux/macOS
 python setup.py
 ```
@@ -216,20 +219,39 @@ config/settings.json で更新間隔を設定
 }
 ```
 
-### Gmail通知設定手順
+### 通知設定手順
+
+#### 簡単設定（推奨）
+```bash
+# 対話式セットアップを実行
+setup_notifications.bat
+
+# 選択肢：
+# 1. デスクトップ通知のみ（パスワード不要）
+# 2. Gmail + デスクトップ通知（アプリパスワード必要）
+```
+
+#### Gmail通知設定（手動）
+
+**セキュリティ重視**: 環境変数でパスワード管理
 
 1. **Googleアカウント**の2段階認証を有効化
 2. **アプリパスワード**を生成：
-   - Google アカウント → セキュリティ → アプリパスワード
+   - [Google アプリパスワード](https://myaccount.google.com/apppasswords)
    - 「メール」を選択してパスワードを生成
-3. **設定ファイル**に情報を入力：
+3. **環境変数に設定**：
+   ```cmd
+   # Windows
+   setx GMAIL_USERNAME "your_email@gmail.com"
+   setx GMAIL_APP_PASSWORD "your_16_char_app_password"
+   ```
+4. **設定ファイル**で通知先を設定：
    ```json
    {
      "notifications": {
        "email": {
          "enabled": true,
-         "username": "your_email@gmail.com",
-         "password": "generated_app_password"
+         "recipients": ["alerts@yourdomain.com"]
        }
      }
    }
@@ -261,6 +283,7 @@ japanese-stock-watchdog/
 ├── requirements.txt             # Python依存関係
 ├── setup.py                     # 自動セットアップスクリプト
 ├── setup.bat                    # Windows用セットアップ
+├── setup_notifications.bat      # 通知設定（対話式）
 ├── run_gui.bat                  # Windows用GUI起動
 ├── clear_db.py                  # データクリアスクリプト
 ├── debug_db.py                  # デバッグ用スクリプト
@@ -313,7 +336,8 @@ japanese-stock-watchdog/
 - **API制限**: Yahoo Finance利用規約に準拠した適切な使用
 
 ### 注意事項
-- アプリパスワードは安全に管理してください
+- **環境変数でパスワード管理**: 設定ファイルに直接記載しない
+- **デスクトップ通知のみ**: パスワード不要で最も安全
 - CSVファイルには個人の投資情報が含まれます
 - 定期的なバックアップを推奨します
 
@@ -348,7 +372,19 @@ japanese-stock-watchdog/
 pip install chardet
 ```
 
-#### 4. GUI起動エラー
+#### 4. Gmail通知エラー
+```bash
+# 症状: "メール設定が不完全です"
+# 解決方法:
+# 1. 環境変数を確認
+echo $GMAIL_USERNAME
+echo $GMAIL_APP_PASSWORD
+
+# 2. デスクトップ通知のみに変更
+setup_notifications.bat  # 選択肢1を選択
+```
+
+#### 5. GUI起動エラー
 ```bash
 # 症状: tkinterエラー
 # 解決方法（Ubuntu/Linux）:

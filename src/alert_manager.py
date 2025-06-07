@@ -1,5 +1,6 @@
 import smtplib
 import json
+import os
 import tkinter as tk
 from tkinter import messagebox
 from email.mime.text import MIMEText
@@ -102,15 +103,15 @@ class AlertManager:
         try:
             email_config = self.config['notifications']['email']
             
-            # SMTP設定
+            # SMTP設定（環境変数を優先）
             smtp_server = email_config.get('smtp_server', 'smtp.gmail.com')
             smtp_port = email_config.get('smtp_port', 587)
-            username = email_config.get('username', '')
-            password = email_config.get('password', '')
+            username = os.getenv('GMAIL_USERNAME') or email_config.get('username', '')
+            password = os.getenv('GMAIL_APP_PASSWORD') or email_config.get('password', '')
             recipients = email_config.get('recipients', [])
             
             if not all([username, password, recipients]):
-                print("メール設定が不完全です")
+                print("メール設定が不完全です。環境変数GMAIL_USERNAMEとGMAIL_APP_PASSWORDを設定してください。")
                 return
             
             # メール作成
@@ -246,11 +247,11 @@ class AlertManager:
         try:
             email_config = self.config['notifications']['email']
             
-            # SMTP設定
+            # SMTP設定（環境変数を優先）
             smtp_server = email_config.get('smtp_server', 'smtp.gmail.com')
             smtp_port = email_config.get('smtp_port', 587)
-            username = email_config.get('username', '')
-            password = email_config.get('password', '')
+            username = os.getenv('GMAIL_USERNAME') or email_config.get('username', '')
+            password = os.getenv('GMAIL_APP_PASSWORD') or email_config.get('password', '')
             recipients = email_config.get('recipients', [])
             
             if not all([username, password, recipients]):
