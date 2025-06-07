@@ -1,0 +1,21 @@
+{
+  "database": {
+    "path": "data/portfolio.db"
+  },
+  "notifications": {
+    "email": {
+      "enabled": false,
+      "smtp_server": "smtp.gmail.com",
+      "smtp_port": 587,
+      "username": "",
+      "password": "",
+      "recipients": []
+    }
+  },
+  "monitoring": {
+    "check_interval_minutes": 30,
+    "market_hours_only": true,
+    "market_start_hour": 9,
+    "market_end_hour": 15
+  }
+}
