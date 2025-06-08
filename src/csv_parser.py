@@ -1,5 +1,4 @@
 import csv
-import pandas as pd
 import chardet
 import re
 from typing import List, Dict, Optional
@@ -54,29 +53,33 @@ class CSVParser:
                 content = f.read()
                 lines = content.split('\n')
                 
+                # 楽天証券の判定（より確実に）
+                for line in lines[:10]:
+                    if '■資産合計欄' in line:
+                        return 'rakuten'
+                    if '保有商品の評価額合計' in line:
+                        return 'rakuten'
+                    if '時価評価額[円]' in line and '前日比[円]' in line:
+                        return 'rakuten'
+                    if 'assetbalance' in file_path.lower():
+                        return 'rakuten'
+                
                 # SBI証券の判定
-                # 「保有商品一覧」または「銘柄コード,銘柄名,保有株数」パターンを探す
-                for line in lines[:10]:  # 最初の10行をチェック
+                for line in lines[:10]:
                     if '保有商品一覧' in line:
                         return 'sbi'
                     if '銘柄コード' in line and '銘柄名' in line and '保有株数' in line:
                         return 'sbi'
-                    if line.startswith('"') and ',' in line and line.count('"') >= 4:  # SBIの引用符パターン
-                        return 'sbi'
-                
-                # 楽天証券の判定
-                # 「資産サマリー」または複雑な表形式を探す
-                for line in lines[:10]:
-                    if '資産サマリー' in line or '保有商品の評価額合計' in line:
-                        return 'rakuten'
-                    if '評価額合計' in line and '前日比' in line:
-                        return 'rakuten'
+                    if line.startswith('"') and ',' in line and line.count('"') >= 4:
+                        # 楽天証券でない場合のみSBIと判定
+                        if '■資産合計欄' not in content:
+                            return 'sbi'
                 
                 # ファイル名からの推測
                 filename = file_path.lower()
-                if 'sbi' in filename:
+                if 'sbi' in filename or 'savefile' in filename:
                     return 'sbi'
-                elif 'rakuten' in filename or '楽天' in filename:
+                elif 'rakuten' in filename or '楽天' in filename or 'assetbalance' in filename:
                     return 'rakuten'
                 
                 return 'unknown'
@@ -166,7 +169,7 @@ class CSVParser:
         return holdings
     
     def parse_rakuten_csv(self, file_path: str) -> List[Holding]:
-        """楽天証券のCSVをパース（個別銘柄対応）"""
+        """楽天証券のCSVをパース（2025年新フォーマット対応）"""
         encoding = self.detect_encoding(file_path)
         holdings = []
         
@@ -176,40 +179,30 @@ class CSVParser:
             
             print("楽天証券CSVを解析中...")
             
-            # 個別銘柄データを直接探す（データパターンから判定）
+            # ヘッダー行を探す
             header_found = False
             data_start_index = 0
             
             for i, line in enumerate(lines):
-                if i < 25:  # 最初の25行はスキップ
-                    continue
-                    
                 line = line.strip()
                 if not line:
                     continue
                 
-                try:
-                    # CSV行をパース
-                    import csv
-                    from io import StringIO
-                    reader = csv.reader(StringIO(line))
-                    row = next(reader)
-                    
-                    # 楽天証券の個別銘柄データパターンを検出
-                    # "国内株式,1928,積水ハウス,NISA成長投資枠,24,株,..." の形式
-                    if (len(row) >= 17 and 
-                        row[0] and ('国内株式' in row[0] or '米国株式' in row[0]) and
-                        row[1] and (row[1].isdigit() or len(row[1]) <= 10) and  # 銘柄コード
-                        row[2] and len(row[2]) > 0 and  # 銘柄名
-                        row[4] and self._parse_number(row[4]) > 0):  # 保有株数
-                        
+                # ヘッダー行を探す: "種別","銘柄コード・ティッカー","銘柄","口座"...
+                if '種別' in line and '銘柄コード・ティッカー' in line and '銘柄' in line:
+                    header_found = True
+                    data_start_index = i + 1
+                    print(f"楽天証券のヘッダーを発見（{i+1}行目）")
+                    break
+            
+            if not header_found:
+                # フォールバック: 保有商品詳細の後から探す
+                for i, line in enumerate(lines):
+                    if '■ 保有商品詳細' in line:
+                        data_start_index = i + 2  # ヘッダーの次の行から
                         header_found = True
-                        data_start_index = i
-                        print(f"楽天証券の個別銘柄データを発見（{i+1}行目から）")
+                        print(f"楽天証券のデータ開始行を推定（{data_start_index+1}行目から）")
                         break
-                        
-                except Exception:
-                    continue
             
             if header_found:
                 print(f"個別銘柄データの処理を開始（{data_start_index+1}行目から）")
@@ -227,22 +220,34 @@ class CSVParser:
                         reader = csv.reader(StringIO(line))
                         row = next(reader)
                         
-                        # 楽天証券のフォーマット: 区分,銘柄コード・ティッカー,銘柄名,口座,保有株数,単位,取得価額,単位,現在値,単位,現在値(更新日),(参考相場),前日比,単位,円貨評価額[円],円貨評価額[外貨],評価損益[円],評価損益[%]
-                        if (len(row) >= 17 and 
-                            row[0] and ('国内株式' in row[0] or '米国株式' in row[0]) and
-                            row[1] and row[2]):  # 銘柄コードと銘柄名が存在
-                            
-                            symbol = str(row[1]).strip()
+                        # 新フォーマット: "種別","銘柄コード・ティッカー","銘柄","口座","保有数量","［単位］","平均取得価額","［単位］","現在値","［単位］",...
+                        # インデックス:      0      1                    2     3        4           5         6           7        8       9
+                        if (len(row) >= 18 and 
+                            row[0] and ('国内株式' in row[0] or '米国株式' in row[0] or '投資信託' in row[0]) and
+                            row[2] and len(row[2]) > 0):  # 銘柄名が存在
+                            asset_type = str(row[0]).strip()
+                            symbol = str(row[1]).strip() if row[1] else ''  # 投資信託は空の場合がある
                             name = str(row[2]).strip()
                             account_type = str(row[3]).strip() if len(row) > 3 else '一般'
                             quantity = self._parse_number(row[4]) if len(row) > 4 else 0
+                            unit1 = str(row[5]).strip() if len(row) > 5 else ''
                             acquisition_price = self._parse_number(row[6]) if len(row) > 6 else 0
+                            unit2 = str(row[7]).strip() if len(row) > 7 else ''
                             current_price = self._parse_number(row[8]) if len(row) > 8 else 0
+                            unit3 = str(row[9]).strip() if len(row) > 9 else ''
                             market_value_yen = self._parse_number(row[14]) if len(row) > 14 else 0
                             profit_loss_yen = self._parse_number(row[16]) if len(row) > 16 else 0
                             
                             # 有効な銘柄かチェック
-                            if symbol and name and quantity > 0:
+                            if name and quantity > 0:
+                                # 投資信託の場合、銘柄コードがないので名前から生成
+                                if not symbol and '投資信託' in asset_type:
+                                    # 投資信託用の疑似シンボル生成
+                                    symbol = f"FUND_{hash(name) % 100000:05d}"
+                                elif not symbol:
+                                    # その他の場合は名前から生成
+                                    symbol = f"STOCK_{hash(name) % 100000:05d}"
+                                
                                 # 取得金額を計算
                                 acquisition_amount = quantity * acquisition_price if acquisition_price > 0 else max(0, market_value_yen - profit_loss_yen)
                                 
@@ -262,7 +267,7 @@ class CSVParser:
                                     broker='楽天',
                                     account_type=account_type
                                 ))
-                                print(f"楽天: {symbol} {name} を追加（{account_type}）")
+                                print(f"楽天: {symbol} {name} を追加（{account_type}, {asset_type}）")
                         
                         # 投資信託の場合（銘柄コードが空で、銘柄名のみの場合）
                         elif (len(row) >= 17 and 
@@ -345,7 +350,7 @@ class CSVParser:
     
     def _parse_number(self, value) -> float:
         """数値文字列を float に変換（日本の数値フォーマット対応）"""
-        if pd.isna(value) or value == '' or value is None:
+        if value == '' or value is None:
             return 0.0
         
         try:
