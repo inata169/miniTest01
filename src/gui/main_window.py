@@ -78,6 +78,8 @@ class MainWindow:
         # ヘルプメニュー
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="ヘルプ", menu=help_menu)
+        help_menu.add_command(label="CSVファイル取得方法", command=self.show_csv_help)
+        help_menu.add_separator()
         help_menu.add_command(label="バージョン情報", command=self.show_about)
     
     def create_portfolio_tab(self):
@@ -85,9 +87,19 @@ class MainWindow:
         portfolio_frame = ttk.Frame(self.notebook)
         self.notebook.add(portfolio_frame, text="ポートフォリオ")
         
+        # サマリー表示制御
+        self.control_frame = ttk.Frame(portfolio_frame)
+        self.control_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        self.show_summary_var = tk.BooleanVar(value=True)
+        summary_check = ttk.Checkbutton(self.control_frame, text="サマリー表示", 
+                                       variable=self.show_summary_var, 
+                                       command=self.toggle_summary_display)
+        summary_check.pack(side=tk.LEFT)
+        
         # サマリー情報
-        summary_frame = ttk.LabelFrame(portfolio_frame, text="サマリー", padding=10)
-        summary_frame.pack(fill=tk.X, padx=5, pady=5)
+        self.summary_frame = ttk.LabelFrame(portfolio_frame, text="サマリー", padding=10)
+        self.summary_frame.pack(fill=tk.X, padx=5, pady=5)
         
         # サマリーラベル
         self.summary_labels = {}
@@ -100,8 +112,8 @@ class MainWindow:
         ]
         
         for i, (key, label) in enumerate(summary_info):
-            ttk.Label(summary_frame, text=f"{label}:").grid(row=0, column=i*2, sticky=tk.W, padx=5)
-            self.summary_labels[key] = ttk.Label(summary_frame, text="¥0", font=("Arial", 10, "bold"))
+            ttk.Label(self.summary_frame, text=f"{label}:").grid(row=0, column=i*2, sticky=tk.W, padx=5)
+            self.summary_labels[key] = ttk.Label(self.summary_frame, text="¥0", font=("Arial", 10, "bold"))
             self.summary_labels[key].grid(row=0, column=i*2+1, sticky=tk.W, padx=5)
         
         # 保有銘柄一覧
@@ -414,6 +426,84 @@ class MainWindow:
             self.import_text.insert(1.0, text)
         
         self.root.after(0, update_text)
+    
+    def toggle_summary_display(self):
+        """サマリー表示の切り替え"""
+        if self.show_summary_var.get():
+            # コントロールフレームの後に配置
+            self.summary_frame.pack(fill=tk.X, padx=5, pady=5, after=self.control_frame)
+        else:
+            self.summary_frame.pack_forget()
+    
+    def show_csv_help(self):
+        """CSVファイル取得方法のヘルプを表示"""
+        help_window = tk.Toplevel(self.root)
+        help_window.title("CSVファイル取得方法")
+        help_window.geometry("600x700")
+        help_window.resizable(True, True)
+        
+        # スクロール可能なフレーム
+        canvas = tk.Canvas(help_window)
+        scrollbar = ttk.Scrollbar(help_window, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # 楽天証券セクション
+        ttk.Label(scrollable_frame, text="楽天証券からCSVファイルを取得する方法", 
+                 font=("Arial", 14, "bold")).pack(pady=(10, 5))
+        
+        rakuten_steps = [
+            "1. 楽天証券のウェブページにアクセスし、ログインします。",
+            "2. マイメニューの資産残高・保有商品をクリックします。",
+            "3. CSVで保存をクリックします。",
+            "4. assetbalance(all)_***.csvというファイルがダウンロードされたことを確認します。"
+        ]
+        
+        for step in rakuten_steps:
+            ttk.Label(scrollable_frame, text=step, wraplength=550, justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=2)
+        
+        # SBI証券セクション
+        ttk.Label(scrollable_frame, text="\nSBI証券からCSVファイルを取得する方法", 
+                 font=("Arial", 14, "bold")).pack(pady=(20, 5))
+        
+        sbi_steps = [
+            "1. SBI証券のウェブページにアクセスし、ログインします。",
+            "2. 口座管理の口座（円建）をクリックします。",
+            "3. 保有証券をクリックし、CSVダウンロードをクリックします。",
+            "4. SaveFile.csvというファイルがダウンロードされたことを確認します。"
+        ]
+        
+        for step in sbi_steps:
+            ttk.Label(scrollable_frame, text=step, wraplength=550, justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=2)
+        
+        # 注意事項
+        ttk.Label(scrollable_frame, text="\n注意事項", 
+                 font=("Arial", 12, "bold")).pack(pady=(20, 5))
+        
+        notes = [
+            "• CSVファイルは日本語（Shift-JIS）エンコーディングで保存されています。",
+            "• このアプリケーションは自動的にエンコーディングを判定してファイルを読み込みます。",
+            "• インポート時に証券会社を選択するか、自動判定を使用してください。",
+            "• ファイル名は変更しても問題ありませんが、内容は変更しないでください。"
+        ]
+        
+        for note in notes:
+            ttk.Label(scrollable_frame, text=note, wraplength=550, justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=2)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # マウスホイールでスクロール
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind("<MouseWheel>", _on_mousewheel)
     
     def show_about(self):
         """バージョン情報表示"""
