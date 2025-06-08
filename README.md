@@ -446,6 +446,67 @@ python -m pytest tests/ -v
 python src/config_validator.py
 ```
 
+## 💻 Windows実行ファイル（EXE）
+
+### 📦 EXE版の特徴
+
+- **単体実行可能**: Pythonインストール不要
+- **設定ファイル同梱**: 初期設定済み
+- **Windows最適化**: Windows 10/11で動作確認済み
+- **簡単配布**: フォルダごとコピーで配布可能
+
+### 🚀 EXE作成方法
+
+#### 推奨方法（修正版）
+```bash
+# 依存関係をインストール
+pip install -r requirements.txt
+
+# 修正版ビルドスクリプト実行
+python build_fixed.py
+```
+
+#### その他の作成方法
+```bash
+# デバッグ用（コンソール表示）
+python build_debug.py
+
+# 簡単ビルド
+python build_simple.py
+
+# フルビルド
+python build_exe.py
+```
+
+### 📁 EXE配布パッケージ
+
+```
+dist/
+├── JapaneseStockWatchdog.exe    # メインアプリケーション
+├── test.bat                     # テスト用起動スクリプト
+├── config/                      # 設定ファイル
+│   ├── settings.json
+│   └── strategies.json
+├── data/                        # データディレクトリ
+│   ├── csv_imports/
+│   └── backups/
+└── logs/                        # ログディレクトリ
+```
+
+### 🔧 EXE使用方法
+
+1. **起動**: `JapaneseStockWatchdog.exe` をダブルクリック
+2. **テスト**: `test.bat` で動作確認
+3. **設定**: `config/settings.json` で詳細設定
+4. **CSVインポート**: アプリ内のヘルプメニューで手順確認
+
+### 📋 動作要件
+
+- **OS**: Windows 10/11 (64bit)
+- **メモリ**: 2GB以上推奨
+- **ストレージ**: 200MB以上の空き容量
+- **ネット接続**: 株価データ取得用
+
 ### 機能追加予定
 - 📊 **チャート表示**: ローソク足、移動平均線
 - 🤖 **機械学習**: 株価予測、最適売買タイミング
