@@ -238,6 +238,19 @@ class DatabaseManager:
                 print(f"株価履歴保存エラー: {e}")
                 return False
     
+    def clear_alerts(self):
+        """アラート履歴をクリア"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute('DELETE FROM alerts')
+                conn.commit()
+                return True
+            except sqlite3.Error as e:
+                print(f"アラート履歴クリアエラー: {e}")
+                return False
+
     def get_portfolio_summary(self) -> Dict:
         """ポートフォリオサマリーを取得"""
         with sqlite3.connect(self.db_path) as conn:

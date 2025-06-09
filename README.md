@@ -1,6 +1,6 @@
 # 日本株ウォッチドッグ (Japanese Stock Watchdog)
 
-![バージョン](https://img.shields.io/badge/version-1.0-blue.svg)
+![バージョン](https://img.shields.io/badge/version-1.1.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-green.svg)
 ![ライセンス](https://img.shields.io/badge/license-MIT-orange.svg)
 ![プラットフォーム](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
@@ -38,7 +38,24 @@
 
 ### 2. インストール
 
-#### 自動セットアップ（推奨）
+#### 仮想環境セットアップ（推奨）
+```bash
+# uvをインストール（初回のみ）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 仮想環境作成とパッケージインストール
+uv venv
+source .venv/bin/activate  # Linux/macOS
+# または .venv\Scripts\activate  # Windows
+
+# 依存関係をインストール
+uv pip install -r requirements.txt
+
+# 簡単アクティベーション（作成済み）
+./activate_env.sh
+```
+
+#### 自動セットアップ（従来方式）
 ```bash
 # Windows
 setup.bat
@@ -56,13 +73,16 @@ python setup.py
 git clone https://github.com/your-username/japanese-stock-watchdog.git
 cd japanese-stock-watchdog
 
-# 2. 依存関係をインストール
-pip install -r requirements.txt
+# 2. 仮想環境セットアップ（推奨）
+uv venv && source .venv/bin/activate
 
-# 3. 必要なディレクトリを作成
+# 3. 依存関係をインストール
+uv pip install -r requirements.txt
+
+# 4. 必要なディレクトリを作成
 mkdir -p data/csv_imports data/backups logs
 
-# 4. アプリケーションを起動
+# 5. アプリケーションを起動
 python src/main.py --gui
 ```
 
@@ -70,8 +90,12 @@ python src/main.py --gui
 
 #### GUIモード（推奨）
 ```bash
-# 直接起動
-python src/main.py --gui
+# 仮想環境を有効化してから起動
+source .venv/bin/activate  # または ./activate_env.sh
+python3 src/main.py --gui
+
+# 簡単起動スクリプト（v1.1.0+）
+./run_app.sh
 
 # Windows用バッチファイル
 run_gui.bat
@@ -79,14 +103,17 @@ run_gui.bat
 
 #### コマンドラインモード
 ```bash
+# 仮想環境を有効化
+source .venv/bin/activate
+
 # インタラクティブモード
-python src/main.py
+python3 src/main.py
 
 # バックグラウンド監視モード
-python src/main.py --daemon
+python3 src/main.py --daemon
 
 # ヘルプ表示
-python src/main.py --help
+python3 src/main.py --help
 ```
 
 ## 📥 CSVインポート手順
@@ -146,6 +173,7 @@ python src/main.py --help
 - **サマリー表示制御**: チェックボックスでサマリー情報の表示/非表示を切り替え可能
 - **銘柄一覧**: 銘柄別の詳細情報（取得価格、現在価格、損益、収益率）
 - **色分け表示**: 利益は緑、損失は赤で視覚的に判別
+- **🆕 ソート機能**: ヘッダークリックで全カラムをソート可能（v1.1.0+）
 
 ### 株価更新機能
 
@@ -156,6 +184,21 @@ python src/main.py --help
 # 自動更新設定
 config/settings.json で更新間隔を設定
 ```
+
+### 🆕 アラート機能（v1.1.0）
+
+**ポートフォリオタブ**のアラート機能：
+- **アラートテストボタン**: 通知機能の動作確認
+- **アラート履歴タブ**: 過去のアラート履歴を色分け表示
+  - 💰 買い推奨（青色）
+  - ✅ 利益確定（緑色）
+  - ⚠️ 損切り（赤色）
+  - 🧪 テスト（黒色）
+
+**デスクトップ通知**：
+- 絵文字付きタイトル
+- 適切なアイコン表示
+- メインスレッドで確実に動作
 
 ### 監視・アラート設定
 
@@ -413,6 +456,22 @@ sudo apt-get install python3-tk
 brew install python-tk
 ```
 
+#### 🆕 6. 日本語文字化け（v1.1.0で解決済み）
+```bash
+# 症状: GUI画面で日本語が□□□に表示される
+# 解決方法（WSL/Linux）:
+sudo apt install fonts-noto-cjk fonts-noto-cjk-extra
+
+# 自動フォント検出機能により自動解決
+```
+
+#### 🆕 7. アラート通知が消えない（v1.1.0で解決済み）
+```bash
+# 症状: デスクトップ通知のOKボタンが押せない
+# 解決方法: v1.1.0でメインスレッド実行に修正済み
+# 緊急対処: ESCキーまたはAlt+F4で強制終了
+```
+
 ### ログファイルの確認
 ```bash
 # アプリケーションログを確認
@@ -518,7 +577,18 @@ dist/
 - **ストレージ**: 200MB以上の空き容量
 - **ネット接続**: 株価データ取得用
 
-### 機能追加予定
+## 🆕 v1.1.0 新機能（2025年6月リリース）
+
+### ✅ 実装済み機能
+- **🧪 アラートテスト機能**: 通知システムの動作確認
+- **📊 テーブルソート**: 全カラムのクリックソート対応
+- **🎨 日本語フォント自動検出**: OSに最適なフォントを自動選択
+- **🎯 色分けアラート履歴**: アラート種別を視覚的に区別
+- **🔧 デスクトップ通知改善**: メインスレッド実行で安定動作
+- **📦 uvパッケージ管理**: 高速な仮想環境とパッケージ管理
+- **🚀 簡単起動スクリプト**: `./run_app.sh`で一発起動
+
+### 機能追加予定（v1.2.0+）
 - 📊 **チャート表示**: ローソク足、移動平均線
 - 🤖 **機械学習**: 株価予測、最適売買タイミング
 - 📱 **LINE通知**: LINE Notify API連携

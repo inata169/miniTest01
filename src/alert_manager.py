@@ -42,13 +42,9 @@ class AlertManager:
         """アラートを各通知方法で送信"""
         notifications_config = self.config.get('notifications', {})
         
-        # デスクトップ通知
+        # デスクトップ通知（メインスレッドで実行）
         if notifications_config.get('desktop', {}).get('enabled', True):
-            threading.Thread(
-                target=self.notification_methods['desktop'], 
-                args=(alert,), 
-                daemon=True
-            ).start()
+            self.notification_methods['desktop'](alert)
         
         # メール通知
         email_config = notifications_config.get('email', {})
@@ -64,36 +60,26 @@ class AlertManager:
             self.notification_methods['console'](alert)
     
     def _send_desktop_notification(self, alert: Alert):
-        """デスクトップ通知を送信"""
+        """デスクトップ通知を送信（シンプル版）"""
         try:
-            # tkinterを使用したポップアップ通知
-            root = tk.Tk()
-            root.withdraw()  # メインウィンドウを隠す
-            
             # アラートタイプに応じたアイコンとタイトル
-            if alert.alert_type == 'buy':
-                title = "買い推奨アラート"
-                icon = "info"
-            elif alert.alert_type == 'sell_profit':
-                title = "利益確定アラート"
-                icon = "info"
-            elif alert.alert_type == 'sell_loss':
-                title = "損切りアラート"
-                icon = "warning"
-            else:
-                title = "株価アラート"
-                icon = "info"
+            alert_icons = {
+                'buy': ('💰 買い推奨アラート', 'info'),
+                'sell_profit': ('✅ 利益確定アラート', 'info'), 
+                'sell_loss': ('⚠️ 損切りアラート', 'warning'),
+                'test': ('🧪 テストアラート', 'info')
+            }
+            
+            title, icon = alert_icons.get(alert.alert_type, ('📊 株価アラート', 'info'))
             
             # メッセージ整形
             message = alert.message.replace('\\n', '\n')
             
-            # ポップアップ表示
+            # 直接メッセージボックスを表示（シンプル）
             if icon == "warning":
                 messagebox.showwarning(title, message)
             else:
                 messagebox.showinfo(title, message)
-            
-            root.destroy()
             
         except Exception as e:
             print(f"デスクトップ通知エラー: {e}")
