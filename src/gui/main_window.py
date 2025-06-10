@@ -208,6 +208,8 @@ class MainWindow:
         ttk.Button(button_frame, text="株価更新", command=self.update_prices).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="表示更新", command=self.refresh_portfolio).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="アラートテスト", command=self.test_alert).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="LINEテスト", command=self.test_line_alert).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Discordテスト", command=self.test_discord_alert).pack(side=tk.LEFT, padx=5)
     
     def create_import_tab(self):
         """CSVインポートタブ作成"""
@@ -771,6 +773,112 @@ class MainWindow:
         except Exception as e:
             messagebox.showerror("エラー", f"アラートテストエラー: {str(e)}")
             self.update_status("準備完了")
+    
+    def test_line_alert(self):
+        """LINE通知機能をテスト"""
+        try:
+            self.update_status("LINE通知テストを実行中...")
+            
+            # LINE通知テスト（非同期）
+            threading.Thread(
+                target=self._send_line_test, 
+                daemon=True
+            ).start()
+            
+        except Exception as e:
+            messagebox.showerror("エラー", f"LINEテストエラー: {str(e)}")
+            self.update_status("準備完了")
+    
+    def _send_line_test(self):
+        """LINE通知テストを非同期実行"""
+        try:
+            # AlertManagerのLINE通知テスト機能を使用
+            success = self.alert_manager.test_line_notification()
+            
+            # メインスレッドでGUIを更新
+            self.root.after(0, self._line_test_completed, success)
+            
+        except Exception as e:
+            error_msg = str(e)
+            self.root.after(0, self._line_test_error, error_msg)
+    
+    def _line_test_completed(self, success):
+        """LINE通知テスト完了時の処理"""
+        if success:
+            self.update_status("LINE通知テスト完了")
+            messagebox.showinfo(
+                "LINE通知テスト", 
+                "LINE通知テストを送信しました。\n"
+                "LINEアプリで通知を確認してください。\n\n"
+                "通知が届かない場合は、トークン設定を確認してください。"
+            )
+        else:
+            self.update_status("LINE通知設定エラー")
+            messagebox.showwarning(
+                "LINE通知エラー", 
+                "LINE通知の設定に問題があります。\n"
+                "詳細はコンソールメッセージを確認してください。"
+            )
+    
+    def _line_test_error(self, error_msg):
+        """LINE通知テストエラー時の処理"""
+        self.update_status(f"LINE通知テストエラー: {error_msg}")
+        messagebox.showerror(
+            "エラー", f"LINE通知テスト送信エラー: {error_msg}"
+        )
+    
+    def test_discord_alert(self):
+        """Discord通知機能をテスト"""
+        try:
+            self.update_status("Discord通知テストを実行中...")
+            
+            # Discord通知テスト（非同期）
+            threading.Thread(
+                target=self._send_discord_test, 
+                daemon=True
+            ).start()
+            
+        except Exception as e:
+            messagebox.showerror("エラー", f"Discordテストエラー: {str(e)}")
+            self.update_status("準備完了")
+    
+    def _send_discord_test(self):
+        """Discord通知テストを非同期実行"""
+        try:
+            # AlertManagerのDiscord通知テスト機能を使用
+            success = self.alert_manager.test_discord_notification()
+            
+            # メインスレッドでGUIを更新
+            self.root.after(0, self._discord_test_completed, success)
+            
+        except Exception as e:
+            error_msg = str(e)
+            self.root.after(0, self._discord_test_error, error_msg)
+    
+    def _discord_test_completed(self, success):
+        """Discord通知テスト完了時の処理"""
+        if success:
+            self.update_status("Discord通知テスト完了")
+            messagebox.showinfo(
+                "Discord通知テスト", 
+                "Discord通知テストを送信しました。\n"
+                "Discordサーバーで通知を確認してください。\n\n"
+                "通知が届かない場合は、WebhookURL設定を確認してください。"
+            )
+        else:
+            self.update_status("Discord通知設定エラー")
+            messagebox.showwarning(
+                "Discord通知エラー", 
+                "Discord通知の設定に問題があります。\n"
+                "詳細はコンソールメッセージを確認してください。"
+            )
+    
+    def _discord_test_error(self, error_msg):
+        """Discord通知テストエラー時の処理"""
+        self.update_status(f"Discord通知テストエラー: {error_msg}")
+        messagebox.showerror(
+            "エラー", f"Discord通知テスト送信エラー: {error_msg}"
+        )
     
     def _send_test_alert(self, message):
         """テストアラートを非同期送信"""

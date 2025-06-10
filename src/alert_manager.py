@@ -8,6 +8,7 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from typing import Optional, Dict, List
 import threading
+import requests
 
 from stock_monitor import Alert
 
@@ -20,7 +21,9 @@ class AlertManager:
         self.notification_methods = {
             'desktop': self._send_desktop_notification,
             'email': self._send_email_notification,
-            'console': self._send_console_notification
+            'console': self._send_console_notification,
+            'line': self._send_line_notification,
+            'discord': self._send_discord_notification
         }
     
     def load_config(self, config_path: str) -> Dict:
@@ -34,7 +37,9 @@ class AlertManager:
                 'notifications': {
                     'email': {'enabled': False},
                     'desktop': {'enabled': True},
-                    'console': {'enabled': True}
+                    'console': {'enabled': True},
+                    'line': {'enabled': False},
+                    'discord': {'enabled': False}
                 }
             }
     
@@ -58,6 +63,24 @@ class AlertManager:
         # コンソール通知
         if notifications_config.get('console', {}).get('enabled', True):
             self.notification_methods['console'](alert)
+        
+        # LINE通知
+        line_config = notifications_config.get('line', {})
+        if line_config.get('enabled', False):
+            threading.Thread(
+                target=self.notification_methods['line'], 
+                args=(alert,), 
+                daemon=True
+            ).start()
+        
+        # Discord通知
+        discord_config = notifications_config.get('discord', {})
+        if discord_config.get('enabled', False):
+            threading.Thread(
+                target=self.notification_methods['discord'], 
+                args=(alert,), 
+                daemon=True
+            ).start()
     
     def _send_desktop_notification(self, alert: Alert):
         """デスクトップ通知を送信（シンプル版）"""
@@ -175,6 +198,171 @@ class AlertManager:
             
         except Exception as e:
             print(f"コンソール通知エラー: {e}")
+    
+    def _send_line_notification(self, alert: Alert):
+        """LINE Notify通知を送信"""
+        try:
+            line_config = self.config['notifications']['line']
+            
+            # LINE Notifyトークン（環境変数を優先）
+            line_token = os.getenv('LINE_NOTIFY_TOKEN') or line_config.get('token', '')
+            
+            if not line_token:
+                print("LINE Notifyトークンが設定されていません。環境変数LINE_NOTIFY_TOKENを設定するか、設定ファイルにトークンを追加してください。")
+                return
+            
+            # メッセージ作成
+            alert_icons = {
+                'buy': '💰',
+                'sell_profit': '✅', 
+                'sell_loss': '⚠️',
+                'test': '🧪'
+            }
+            
+            icon = alert_icons.get(alert.alert_type, '📊')
+            
+            if alert.alert_type == 'buy':
+                alert_type_text = '買い推奨'
+            elif alert.alert_type == 'sell_profit':
+                alert_type_text = '利益確定'
+            elif alert.alert_type == 'sell_loss':
+                alert_type_text = '損切り'
+            elif alert.alert_type == 'test':
+                alert_type_text = 'テスト'
+            else:
+                alert_type_text = '株価アラート'
+            
+            # LINEメッセージ構築
+            message = f"""
+{icon} {alert_type_text}アラート
+
+銘柄: {alert.symbol}
+価格: ¥{alert.triggered_price:,.0f}
+戦略: {alert.strategy_name}
+時刻: {alert.timestamp.strftime('%Y-%m-%d %H:%M:%S')}
+
+{alert.message.replace('\\n', '\n')}
+
+---
+日本株ウォッチドッグ
+""".strip()
+            
+            # LINE Notify API呼び出し
+            headers = {
+                'Authorization': f'Bearer {line_token}',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+            
+            data = {
+                'message': message
+            }
+            
+            response = requests.post(
+                'https://notify-api.line.me/api/notify',
+                headers=headers,
+                data=data,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                print(f"LINE通知送信完了: {alert_type_text} - {alert.symbol}")
+            else:
+                print(f"LINE通知送信エラー: HTTP {response.status_code} - {response.text}")
+                
+        except Exception as e:
+            print(f"LINE通知送信エラー: {e}")
+    
+    def _send_discord_notification(self, alert: Alert):
+        """Discord Webhook通知を送信"""
+        try:
+            discord_config = self.config['notifications']['discord']
+            
+            # Discord WebhookURL（環境変数を優先）
+            webhook_url = os.getenv('DISCORD_WEBHOOK_URL') or discord_config.get('webhook_url', '')
+            
+            if not webhook_url:
+                print("Discord WebhookURLが設定されていません。環境変数DISCORD_WEBHOOK_URLを設定するか、設定ファイルにwebhook_urlを追加してください。")
+                return
+            
+            # アラートタイプに応じたアイコンと色
+            alert_colors = {
+                'buy': 0x00FF00,      # 緑色（買い推奨）
+                'sell_profit': 0x0099FF,  # 青色（利益確定）
+                'sell_loss': 0xFF3333,    # 赤色（損切り）
+                'test': 0x999999      # 灰色（テスト）
+            }
+            
+            alert_icons = {
+                'buy': '💰',
+                'sell_profit': '✅', 
+                'sell_loss': '⚠️',
+                'test': '🧪'
+            }
+            
+            icon = alert_icons.get(alert.alert_type, '📊')
+            color = alert_colors.get(alert.alert_type, 0x7289DA)
+            
+            if alert.alert_type == 'buy':
+                alert_type_text = '買い推奨'
+            elif alert.alert_type == 'sell_profit':
+                alert_type_text = '利益確定'
+            elif alert.alert_type == 'sell_loss':
+                alert_type_text = '損切り'
+            elif alert.alert_type == 'test':
+                alert_type_text = 'テスト'
+            else:
+                alert_type_text = '株価アラート'
+            
+            # Discord Embed形式でメッセージ構築
+            embed = {
+                "title": f"{icon} {alert_type_text}アラート",
+                "color": color,
+                "fields": [
+                    {
+                        "name": "銘柄",
+                        "value": alert.symbol,
+                        "inline": True
+                    },
+                    {
+                        "name": "価格",
+                        "value": f"¥{alert.triggered_price:,.0f}",
+                        "inline": True
+                    },
+                    {
+                        "name": "戦略",
+                        "value": alert.strategy_name,
+                        "inline": True
+                    },
+                    {
+                        "name": "詳細",
+                        "value": alert.message.replace('\\n', '\n'),
+                        "inline": False
+                    }
+                ],
+                "footer": {
+                    "text": "日本株ウォッチドッグ"
+                },
+                "timestamp": alert.timestamp.isoformat()
+            }
+            
+            # Discord Webhook APIに送信
+            payload = {
+                "embeds": [embed]
+            }
+            
+            response = requests.post(
+                webhook_url,
+                json=payload,
+                timeout=10
+            )
+            
+            if response.status_code == 204:
+                print(f"Discord通知送信完了: {alert_type_text} - {alert.symbol}")
+            else:
+                print(f"Discord通知送信エラー: HTTP {response.status_code} - {response.text}")
+                
+        except Exception as e:
+            print(f"Discord通知送信エラー: {e}")
     
     def send_daily_report(self, portfolio_summary: Dict, recent_alerts: List[Dict]):
         """日次レポートを送信"""
@@ -297,7 +485,7 @@ class AlertManager:
         """通知機能のテスト"""
         test_alert = Alert(
             symbol="TEST",
-            alert_type="buy",
+            alert_type="test",
             message="これはテスト通知です\\n通知機能が正常に動作しています",
             triggered_price=1000,
             strategy_name="test_strategy",
@@ -307,6 +495,72 @@ class AlertManager:
         print("通知機能をテストしています...")
         self.send_alert(test_alert)
         print("テスト完了")
+    
+    def test_line_notification(self):
+        """LINE通知専用テスト"""
+        line_config = self.config.get('notifications', {}).get('line', {})
+        line_token = os.getenv('LINE_NOTIFY_TOKEN') or line_config.get('token', '')
+        
+        if not line_token:
+            print("❌ LINE Notifyトークンが設定されていません")
+            print("設定方法:")
+            print("1. https://notify-bot.line.me/ja/ でトークンを発行")
+            print("2. 環境変数に設定: export LINE_NOTIFY_TOKEN='your_token_here'")
+            print("3. または config/settings.json の line.token に設定")
+            return False
+        
+        if not line_config.get('enabled', False):
+            print("❌ LINE通知が無効になっています")
+            print("config/settings.json で line.enabled を true に設定してください")
+            return False
+        
+        test_alert = Alert(
+            symbol="7203",
+            alert_type="test",
+            message="LINE通知テストが正常に動作しています\\nトヨタ自動車のサンプルアラートです",
+            triggered_price=2500,
+            strategy_name="test_strategy",
+            timestamp=datetime.now()
+        )
+        
+        print("LINE通知をテストしています...")
+        self._send_line_notification(test_alert)
+        return True
+    
+    def test_discord_notification(self):
+        """Discord通知専用テスト"""
+        discord_config = self.config.get('notifications', {}).get('discord', {})
+        webhook_url = os.getenv('DISCORD_WEBHOOK_URL') or discord_config.get('webhook_url', '')
+        
+        if not webhook_url:
+            print("❌ Discord WebhookURLが設定されていません")
+            print("設定方法:")
+            print("1. Discordサーバーを作成（または既存サーバーを使用）")
+            print("2. サーバー設定 → 連携サービス → ウェブフック → 新しいウェブフック")
+            print("3. ウェブフック名を設定（例：日本株ウォッチドッグ）")
+            print("4. チャンネルを選択")
+            print("5. ウェブフックURLをコピー")
+            print("6. 環境変数に設定: export DISCORD_WEBHOOK_URL='webhook_url_here'")
+            print("7. または config/settings.json の discord.webhook_url に設定")
+            return False
+        
+        if not discord_config.get('enabled', False):
+            print("❌ Discord通知が無効になっています")
+            print("config/settings.json で discord.enabled を true に設定してください")
+            return False
+        
+        test_alert = Alert(
+            symbol="7203",
+            alert_type="test",
+            message="Discord通知テストが正常に動作しています\\nトヨタ自動車のサンプルアラートです",
+            triggered_price=2500,
+            strategy_name="test_strategy",
+            timestamp=datetime.now()
+        )
+        
+        print("Discord通知をテストしています...")
+        self._send_discord_notification(test_alert)
+        return True
 
 
 if __name__ == "__main__":

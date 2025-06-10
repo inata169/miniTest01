@@ -16,6 +16,14 @@
     },
     "console": {
       "enabled": true
+    },
+    "line": {
+      "enabled": false,
+      "token": ""
+    },
+    "discord": {
+      "enabled": true,
+      "webhook_url": ""
     }
   },
   "monitoring": {
