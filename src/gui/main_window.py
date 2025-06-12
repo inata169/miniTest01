@@ -1033,8 +1033,18 @@ PBR: 1.0 ✅ (設定: 4.0以下)
             error_count = 0
             
             for symbol in symbols:
-                # symbolを文字列に変換
-                symbol_str = str(symbol)
+                # symbolを文字列に変換（より堅牢な変換）
+                try:
+                    if symbol is None:
+                        skipped_count += 1
+                        continue
+                    symbol_str = str(symbol).strip()
+                    if not symbol_str:  # 空文字列チェック
+                        skipped_count += 1
+                        continue
+                except (TypeError, AttributeError):
+                    skipped_count += 1
+                    continue
                 
                 # 疑似シンボルをスキップ
                 if (symbol_str.startswith('PORTFOLIO_') or 
@@ -1192,8 +1202,8 @@ PBR: 1.0 ✅ (設定: 4.0以下)
             buy_conditions_met = 0
             buy_details = []
             
-            # 配当利回りチェック（厳しく設定）
-            dividend_yield = (stock_info.dividend_yield or 0) * 100
+            # 配当利回りチェック（Yahoo Financeは小数形式で返す）
+            dividend_yield = (stock_info.dividend_yield or 0)
             dividend_min = buy_conditions.get('dividend_yield_min', 2.0)
             if dividend_yield >= dividend_min:
                 buy_conditions_met += 1
@@ -1201,14 +1211,14 @@ PBR: 1.0 ✅ (設定: 4.0以下)
             
             # PERチェック（厳しく設定）
             per = stock_info.pe_ratio or 0
-            per_max = buy_conditions.get('per_max', 12.0)
+            per_max = buy_conditions.get('per_max', 15.0)
             if per > 0 and per <= per_max:
                 buy_conditions_met += 1
                 buy_details.append(f"PER {per:.1f}≤{per_max}")
             
             # PBRチェック（厳しく設定）
             pbr = stock_info.pb_ratio or 0
-            pbr_max = buy_conditions.get('pbr_max', 1.2)
+            pbr_max = buy_conditions.get('pbr_max', 1.5)
             if pbr > 0 and pbr <= pbr_max:
                 buy_conditions_met += 1
                 buy_details.append(f"PBR {pbr:.1f}≤{pbr_max}")

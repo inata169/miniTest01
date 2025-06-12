@@ -427,7 +427,29 @@ Before implementing any advanced feature, ask:
 
 ## v1.3.0+ Development Roadmap (Future Features)
 
-## v1.2.1 New Features (December 2025) - UI Enhancement Update
+## v1.2.1 New Features (December 2025) - UI Enhancement & Bug Fix Update
+
+### 🐛 Critical Bug Fixes
+
+#### **価格更新エラー修正**
+- **問題**: "'int' object has no attribute 'startswith'" エラーが価格更新時に発生
+- **原因**: データベースから取得される銘柄コード（7203、8267等）が整数型で、文字列メソッドが呼び出せない
+- **解決**: 堅牢な型変換とエラーハンドリングを実装
+```python
+# 修正前（エラー発生）
+symbol_str = str(symbol)
+if symbol_str.startswith('PORTFOLIO_'):
+
+# 修正後（安全な処理）
+try:
+    if symbol is None:
+        continue
+    symbol_str = str(symbol).strip()
+    if not symbol_str:
+        continue
+except (TypeError, AttributeError):
+    continue
+```
 
 ### 🎯 Enhanced Portfolio Management
 
@@ -442,9 +464,13 @@ Before implementing any advanced feature, ask:
 
 #### **条件マッチング視覚化システム**
 - **🔥買い頃！** (3条件一致): 緑色背景、太字表示
-- **⚡あと少し** (2条件一致): オレンジ色背景、太字表示  
-- **👀要注目** (1条件一致): 赤色背景、太字表示
+- **⚡検討中** (2条件一致): オレンジ色背景、太字表示  
+- **👀監視中** (1条件一致): 薄い赤色背景、太字表示
 - **😴様子見** (0条件一致): グレー色背景、通常表示
+
+#### **売りシグナル表示**
+- **💰売り頃！**: 利益確定条件達成（利益率 >= 設定値）
+- **⚠️損切り**: 損切り条件達成（損失率 <= 設定値）
 
 #### **投資判断の視覚化**
 ```
