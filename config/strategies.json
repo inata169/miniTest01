@@ -2,13 +2,13 @@
   "default_strategy": {
     "condition_mode": "any_two_of_three",
     "buy_conditions": {
-      "dividend_yield_min": 1.0,
-      "per_max": 40.0,
-      "pbr_max": 4.0
+      "dividend_yield_min": 2.0,
+      "per_max": 15.0,
+      "pbr_max": 1.5
     },
     "sell_conditions": {
-      "profit_target": 8.0,
-      "stop_loss": -3.0
+      "profit_target": 15.0,
+      "stop_loss": -8.0
     },
     "weights": {
       "dividend_weight": 0.4,
