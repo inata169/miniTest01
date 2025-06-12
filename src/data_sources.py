@@ -5,6 +5,7 @@ from typing import Dict, Optional, List
 from dataclasses import dataclass
 import time
 from datetime import datetime, timedelta
+from logger import app_logger
 
 
 @dataclass
@@ -33,16 +34,23 @@ class YahooFinanceDataSource:
     
     def _format_japanese_symbol(self, symbol: str) -> str:
         """株式シンボルをYahoo Finance形式に変換"""
+        # 既に.Tが付いている場合はそのまま
+        if symbol.endswith('.T'):
+            return symbol
+        
         # 数字のみの場合（日本株）は .T を追加
         if symbol.isdigit():
             return f"{symbol}.T"
+        
+        # 数字+アルファベット（日本株の優先株など: 314A, 335A）
+        elif symbol[:-1].isdigit() and symbol[-1].isalpha() and len(symbol) <= 6:
+            return f"{symbol}.T"
+        
         # アルファベットのみで.Tが付いていない場合（米国株など）
         elif symbol.isalpha() and len(symbol) <= 5:
             # 米国株式として処理（.Tを付けない）
             return symbol
-        # 既に.Tが付いている場合
-        elif not symbol.endswith('.T') and symbol.isdigit():
-            return f"{symbol}.T"
+        
         return symbol
     
     def _is_cache_valid(self, symbol: str) -> bool:
@@ -114,16 +122,36 @@ class YahooFinanceDataSource:
             return None
     
     def get_multiple_stocks(self, symbols: List[str]) -> Dict[str, StockInfo]:
-        """複数の株式情報を一括取得"""
+        """複数の株式情報を効率的に一括取得"""
         results = {}
         
+        # キャッシュされたデータを先にチェック
+        uncached_symbols = []
         for symbol in symbols:
-            stock_info = self.get_stock_info(symbol)
-            if stock_info:
-                results[symbol] = stock_info
+            formatted_symbol = self._format_japanese_symbol(symbol)
+            if self._is_cache_valid(formatted_symbol):
+                cached_data = self.cache[formatted_symbol]['data']
+                results[symbol] = cached_data
+            else:
+                uncached_symbols.append(symbol)
+        
+        # キャッシュされていないシンボルのみを取得
+        if uncached_symbols:
+            app_logger.info(f"株価データ取得: {len(uncached_symbols)}銘柄（キャッシュ済み: {len(results)}銘柄）")
             
-            # レート制限対策（少し待機）
-            time.sleep(0.1)
+            # バッチサイズで分割して取得（レート制限対策）
+            batch_size = 5
+            for i in range(0, len(uncached_symbols), batch_size):
+                batch = uncached_symbols[i:i+batch_size]
+                
+                for symbol in batch:
+                    stock_info = self.get_stock_info(symbol)
+                    if stock_info:
+                        results[symbol] = stock_info
+                
+                # バッチ間の待機時間（レート制限対策）
+                if i + batch_size < len(uncached_symbols):
+                    time.sleep(0.5)
         
         return results
     
@@ -143,7 +171,7 @@ class YahooFinanceDataSource:
                 }
             
             # 過去1年の配当合計
-            one_year_ago = datetime.now() - timedelta(days=365)
+            one_year_ago = pd.Timestamp.now() - timedelta(days=365)
             recent_dividends = dividends[dividends.index >= one_year_ago]
             annual_dividend = recent_dividends.sum()
             

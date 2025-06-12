@@ -10,7 +10,19 @@ from typing import Optional, Dict, List
 import threading
 import requests
 
-from stock_monitor import Alert
+from dataclasses import dataclass
+from datetime import datetime
+
+
+@dataclass
+class Alert:
+    """アラートデータクラス"""
+    symbol: str
+    alert_type: str
+    message: str
+    triggered_price: float
+    strategy_name: str
+    timestamp: datetime
 
 
 class AlertManager:

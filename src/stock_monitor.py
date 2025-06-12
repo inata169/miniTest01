@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from data_sources import YahooFinanceDataSource, StockInfo
 from database import DatabaseManager
+from logger import app_logger
 
 
 @dataclass
@@ -15,6 +16,9 @@ class Strategy:
     name: str
     buy_conditions: Dict
     sell_conditions: Dict
+    condition_mode: str = "any_two_of_three"  # any_two_of_three, weighted_score, strict_and, any_one
+    min_score: float = 0.6  # weighted_score用の閾値
+    weights: Dict = None  # 重み付け
 
 
 @dataclass
@@ -36,6 +40,10 @@ class StockMonitor:
         self.db = DatabaseManager()
         self.strategies = self.load_strategies(config_path)
         
+        # 遅延初期化でAlertManagerを設定
+        self.alert_manager = None
+        self._initialize_alert_manager()
+        
         self.monitoring = False
         self.monitor_thread = None
         self.check_interval = 1800  # 30分間隔
@@ -45,6 +53,32 @@ class StockMonitor:
         
         # 最後のアラート時刻を記録（重複防止）
         self.last_alerts = {}
+    
+    def _initialize_alert_manager(self):
+        """AlertManagerを遅延初期化"""
+        try:
+            from alert_manager import AlertManager
+            self.alert_manager = AlertManager()
+        except Exception as e:
+            app_logger.warning(f"AlertManager初期化に失敗: {e}")
+            self.alert_manager = None
+    
+    def _get_default_strategies(self) -> Dict[str, Strategy]:
+        """デフォルト戦略を返す"""
+        return {
+            "default_strategy": Strategy(
+                name="default_strategy",
+                buy_conditions={
+                    "dividend_yield_min": 1.0,
+                    "per_max": 40.0,
+                    "pbr_max": 4.0
+                },
+                sell_conditions={
+                    "profit_target": 8.0,
+                    "stop_loss": -3.0
+                }
+            )
+        }
     
     def load_strategies(self, config_path: str) -> Dict[str, Strategy]:
         """戦略設定をロード"""
@@ -57,14 +91,30 @@ class StockMonitor:
                 strategies[name] = Strategy(
                     name=name,
                     buy_conditions=data.get('buy_conditions', {}),
-                    sell_conditions=data.get('sell_conditions', {})
+                    sell_conditions=data.get('sell_conditions', {}),
+                    condition_mode=data.get('condition_mode', 'any_two_of_three'),
+                    min_score=data.get('min_score', 0.6),
+                    weights=data.get('weights', {
+                        'dividend_weight': 0.4,
+                        'per_weight': 0.3,
+                        'pbr_weight': 0.3
+                    })
                 )
             
             return strategies
             
+        except FileNotFoundError:
+            app_logger.error(f"設定ファイルが見つかりません: {config_path}")
+            print(f"設定ファイルが見つかりません: {config_path}")
+            return self._get_default_strategies()
+        except json.JSONDecodeError as e:
+            app_logger.error(f"設定ファイルのJSON形式が不正です: {e}")
+            print(f"設定ファイルのJSON形式が不正です: {e}")
+            return self._get_default_strategies()
         except Exception as e:
+            app_logger.error(f"戦略設定読み込みエラー: {e}")
             print(f"戦略設定読み込みエラー: {e}")
-            return {}
+            return self._get_default_strategies()
     
     def add_alert_callback(self, callback: Callable):
         """アラートコールバック関数を追加"""
@@ -73,12 +123,14 @@ class StockMonitor:
     def start_monitoring(self):
         """監視開始"""
         if self.monitoring:
+            app_logger.warning("既に監視中です")
             print("既に監視中です")
             return
         
         self.monitoring = True
         self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self.monitor_thread.start()
+        app_logger.info("株価監視を開始しました")
         print("株価監視を開始しました")
     
     def stop_monitoring(self):
@@ -86,16 +138,19 @@ class StockMonitor:
         self.monitoring = False
         if self.monitor_thread:
             self.monitor_thread.join(timeout=5)
+        app_logger.info("株価監視を停止しました")
         print("株価監視を停止しました")
     
     def _monitor_loop(self):
         """監視メインループ"""
         while self.monitoring:
             try:
+                app_logger.info("株価チェック開始")
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 株価チェック開始")
                 
                 # 市場開場時間チェック
                 if not self.data_source.is_market_open():
+                    app_logger.info("市場クローズ中 - 次回チェックまで待機")
                     print("市場クローズ中 - 次回チェックまで待機")
                     time.sleep(self.check_interval)
                     continue
@@ -106,9 +161,11 @@ class StockMonitor:
                 # 監視銘柄をチェック
                 self._check_watchlist()
                 
+                app_logger.info("株価チェック完了 - 次回チェックまで待機")
                 print("株価チェック完了 - 次回チェックまで待機")
                 
             except Exception as e:
+                app_logger.error(f"監視エラー: {e}")
                 print(f"監視エラー: {e}")
             
             time.sleep(self.check_interval)
@@ -135,9 +192,19 @@ class StockMonitor:
                     self._trigger_alert(sell_alert)
     
     def _check_watchlist(self):
-        """監視銘柄の買い条件チェック"""
+        """監視銘柄の買い条件チェック（最適化版）"""
         watchlist = self.db.get_watchlist()
         
+        if not watchlist:
+            return
+        
+        # 監視銘柄のシンボルリストを作成
+        symbols = [item['symbol'] for item in watchlist]
+        
+        # 一括で株価情報を取得（効率化）
+        stock_infos = self.data_source.get_multiple_stocks(symbols)
+        
+        # 各銘柄をチェック
         for item in watchlist:
             symbol = item['symbol']
             strategy_name = item['strategy_name']
@@ -145,12 +212,11 @@ class StockMonitor:
             if strategy_name not in self.strategies:
                 continue
             
-            strategy = self.strategies[strategy_name]
-            
-            # 株価情報取得
-            stock_info = self.data_source.get_stock_info(symbol)
-            if not stock_info:
+            if symbol not in stock_infos:
                 continue
+            
+            strategy = self.strategies[strategy_name]
+            stock_info = stock_infos[symbol]
             
             # 配当情報取得
             dividend_info = self.data_source.get_dividend_info(symbol)
@@ -161,33 +227,40 @@ class StockMonitor:
                 self._trigger_alert(buy_alert)
     
     def _check_buy_conditions(self, stock_info: StockInfo, dividend_info: Dict, strategy: Strategy) -> Optional[Alert]:
-        """買い条件をチェック"""
+        """買い条件をチェック（高度な判定ロジック）"""
         conditions = strategy.buy_conditions
         reasons = []
         
-        # 配当利回りチェック
-        min_dividend_yield = conditions.get('dividend_yield_min', 0)
-        current_dividend_yield = dividend_info.get('dividend_yield', 0)
-        if current_dividend_yield >= min_dividend_yield:
-            reasons.append(f"配当利回り {current_dividend_yield:.2f}% >= {min_dividend_yield}%")
-        elif min_dividend_yield > 0:
-            return None  # 配当利回り条件を満たさない
+        # 各条件の評価
+        dividend_score, dividend_reason = self._evaluate_dividend_condition(
+            dividend_info.get('dividend_yield', 0), 
+            conditions.get('dividend_yield_min', 0)
+        )
         
-        # PER チェック
-        max_per = conditions.get('per_max', float('inf'))
-        current_per = stock_info.pe_ratio or 0
-        if current_per > 0 and current_per <= max_per:
-            reasons.append(f"PER {current_per:.1f} <= {max_per}")
-        elif max_per < float('inf') and current_per > max_per:
-            return None  # PER条件を満たさない
+        per_score, per_reason = self._evaluate_per_condition(
+            stock_info.pe_ratio or 0, 
+            conditions.get('per_max', float('inf'))
+        )
         
-        # PBR チェック
-        max_pbr = conditions.get('pbr_max', float('inf'))
-        current_pbr = stock_info.pb_ratio or 0
-        if current_pbr > 0 and current_pbr <= max_pbr:
-            reasons.append(f"PBR {current_pbr:.1f} <= {max_pbr}")
-        elif max_pbr < float('inf') and current_pbr > max_pbr:
-            return None  # PBR条件を満たさない
+        pbr_score, pbr_reason = self._evaluate_pbr_condition(
+            stock_info.pb_ratio or 0, 
+            conditions.get('pbr_max', float('inf'))
+        )
+        
+        if dividend_reason:
+            reasons.append(dividend_reason)
+        if per_reason:
+            reasons.append(per_reason)
+        if pbr_reason:
+            reasons.append(pbr_reason)
+        
+        # 戦略の条件モードに応じた判定
+        is_buy_signal = self._evaluate_strategy_condition(
+            strategy, dividend_score, per_score, pbr_score
+        )
+        
+        if not is_buy_signal:
+            return None
         
         # アラートが既に最近発生していないかチェック
         alert_key = f"{stock_info.symbol}_buy_{strategy.name}"
@@ -195,8 +268,9 @@ class StockMonitor:
             return None
         
         if reasons:
-            message = f"【買い推奨】{stock_info.name} ({stock_info.symbol})\\n" + \
-                     f"現在価格: ¥{stock_info.current_price:,.0f}\\n" + \
+            message = f"【買い推奨】{stock_info.name} ({stock_info.symbol})\n" + \
+                     f"現在価格: ¥{stock_info.current_price:,.0f}\n" + \
+                     f"戦略: {strategy.name} ({strategy.condition_mode})\n" + \
                      f"理由: {', '.join(reasons)}"
             
             return Alert(
@@ -209,6 +283,68 @@ class StockMonitor:
             )
         
         return None
+    
+    def _evaluate_dividend_condition(self, current_yield: float, min_yield: float) -> tuple:
+        """配当利回り条件を評価"""
+        if min_yield <= 0:
+            return 0, None
+        
+        if current_yield >= min_yield:
+            return 1, f"配当利回り {current_yield:.2f}% >= {min_yield}%"
+        else:
+            return 0, None
+    
+    def _evaluate_per_condition(self, current_per: float, max_per: float) -> tuple:
+        """PER条件を評価"""
+        if max_per >= float('inf'):
+            return 0, None
+        
+        if current_per > 0 and current_per <= max_per:
+            return 1, f"PER {current_per:.1f} <= {max_per}"
+        else:
+            return 0, None
+    
+    def _evaluate_pbr_condition(self, current_pbr: float, max_pbr: float) -> tuple:
+        """PBR条件を評価"""
+        if max_pbr >= float('inf'):
+            return 0, None
+        
+        if current_pbr > 0 and current_pbr <= max_pbr:
+            return 1, f"PBR {current_pbr:.1f} <= {max_pbr}"
+        else:
+            return 0, None
+    
+    def _evaluate_strategy_condition(self, strategy: Strategy, dividend_score: int, per_score: int, pbr_score: int) -> bool:
+        """戦略の条件モードに応じた判定"""
+        mode = strategy.condition_mode
+        
+        if mode == "strict_and":
+            # 全条件を満たす必要がある
+            total_conditions = sum([1 for score in [dividend_score, per_score, pbr_score] if score >= 0])
+            satisfied_conditions = dividend_score + per_score + pbr_score
+            return satisfied_conditions == total_conditions and total_conditions > 0
+        
+        elif mode == "any_one":
+            # 1つでも条件を満たせばOK
+            return (dividend_score + per_score + pbr_score) >= 1
+        
+        elif mode == "any_two_of_three":
+            # 3条件中2条件以上
+            return (dividend_score + per_score + pbr_score) >= 2
+        
+        elif mode == "weighted_score":
+            # 重み付きスコア
+            weights = strategy.weights or {}
+            weighted_score = (
+                dividend_score * weights.get('dividend_weight', 0.4) +
+                per_score * weights.get('per_weight', 0.3) +
+                pbr_score * weights.get('pbr_weight', 0.3)
+            )
+            return weighted_score >= strategy.min_score
+        
+        else:
+            # デフォルトは any_two_of_three
+            return (dividend_score + per_score + pbr_score) >= 2
     
     def _check_sell_conditions(self, holding: Dict, stock_info: StockInfo, strategy: Strategy) -> Optional[Alert]:
         """売り条件をチェック"""
@@ -224,8 +360,8 @@ class StockMonitor:
             # アラートが既に最近発生していないかチェック
             alert_key = f"{stock_info.symbol}_sell_profit_{strategy.name}"
             if not self._is_recent_alert(alert_key):
-                message = f"【利益確定推奨】{stock_info.name} ({stock_info.symbol})\\n" + \
-                         f"現在価格: ¥{current_price:,.0f}\\n" + \
+                message = f"【利益確定推奨】{stock_info.name} ({stock_info.symbol})\n" + \
+                         f"現在価格: ¥{current_price:,.0f}\n" + \
                          f"収益率: {return_rate:+.2f}% (目標: {profit_target}%)"
                 
                 return Alert(
@@ -243,8 +379,8 @@ class StockMonitor:
             # アラートが既に最近発生していないかチェック
             alert_key = f"{stock_info.symbol}_sell_loss_{strategy.name}"
             if not self._is_recent_alert(alert_key):
-                message = f"【損切り推奨】{stock_info.name} ({stock_info.symbol})\\n" + \
-                         f"現在価格: ¥{current_price:,.0f}\\n" + \
+                message = f"【損切り推奨】{stock_info.name} ({stock_info.symbol})\n" + \
+                         f"現在価格: ¥{current_price:,.0f}\n" + \
                          f"収益率: {return_rate:+.2f}% (損切りライン: {stop_loss}%)"
                 
                 return Alert(
@@ -281,13 +417,23 @@ class StockMonitor:
         alert_key = f"{alert.symbol}_{alert.alert_type}_{alert.strategy_name}"
         self.last_alerts[alert_key] = alert.timestamp
         
+        # 統合アラート管理システムで通知
+        if self.alert_manager:
+            try:
+                self.alert_manager.send_alert(alert)
+            except Exception as e:
+                app_logger.error(f"アラート管理システムエラー: {e}")
+                print(f"アラート管理システムエラー: {e}")
+        
         # コールバック関数を呼び出し
         for callback in self.alert_callbacks:
             try:
                 callback(alert)
             except Exception as e:
+                app_logger.error(f"アラートコールバックエラー: {e}")
                 print(f"アラートコールバックエラー: {e}")
         
+        app_logger.info(f"[ALERT] {alert.alert_type.upper()}: {alert.symbol} - {alert.strategy_name}")
         print(f"[ALERT] {alert.message}")
     
     def add_stock_to_watchlist(self, symbol: str, name: str, strategy_name: str = "default_strategy"):
@@ -297,8 +443,10 @@ class StockMonitor:
         
         success = self.db.add_to_watchlist(symbol, name, strategy_name)
         if success:
+            app_logger.info(f"監視銘柄に追加: {symbol} ({name}) - 戦略: {strategy_name}")
             print(f"監視銘柄に追加: {symbol} ({name}) - 戦略: {strategy_name}")
         else:
+            app_logger.error(f"監視銘柄追加エラー: {symbol}")
             print(f"監視銘柄追加エラー: {symbol}")
         
         return success
@@ -334,11 +482,11 @@ if __name__ == "__main__":
     # テスト用監視銘柄追加
     # monitor.add_stock_to_watchlist("7203", "トヨタ自動車", "default_strategy")
     
-    print("\\n監視を開始します（Ctrl+Cで停止）")
+    print("\n監視を開始します（Ctrl+Cで停止）")
     try:
         monitor.start_monitoring()
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\\n監視を停止します...")
+        print("\n監視を停止します...")
         monitor.stop_monitoring()

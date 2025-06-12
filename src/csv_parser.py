@@ -248,8 +248,16 @@ class CSVParser:
                                     # その他の場合は名前から生成
                                     symbol = f"STOCK_{hash(name) % 100000:05d}"
                                 
-                                # 取得金額を計算
-                                acquisition_amount = quantity * acquisition_price if acquisition_price > 0 else max(0, market_value_yen - profit_loss_yen)
+                                # 取得金額を計算（投資信託の単位問題対応）
+                                if '投資信託' in asset_type and acquisition_price > 0:
+                                    # 投資信託の場合、評価額-損益から取得金額を逆算
+                                    acquisition_amount = max(0, market_value_yen - profit_loss_yen)
+                                elif acquisition_price > 0:
+                                    # 株式の場合、通常の計算
+                                    acquisition_amount = quantity * acquisition_price
+                                else:
+                                    # その他の場合、評価額-損益から逆算
+                                    acquisition_amount = max(0, market_value_yen - profit_loss_yen)
                                 
                                 # 現在価格が不明な場合、評価額から逆算
                                 if current_price <= 0 and quantity > 0:

@@ -18,6 +18,10 @@ class ConfigValidator:
             'buy_conditions': ['dividend_yield_min', 'per_max', 'pbr_max'],
             'sell_conditions': ['profit_target', 'stop_loss']
         }
+        
+        self.valid_condition_modes = [
+            'any_two_of_three', 'weighted_score', 'strict_and', 'any_one'
+        ]
     
     def validate_settings(self, config_path: str = "config/settings.json") -> bool:
         """設定ファイルをバリデーション"""
@@ -77,6 +81,31 @@ class ConfigValidator:
                         value = section_config[key]
                         if not isinstance(value, (int, float)):
                             raise ConfigError(f"戦略 '{strategy_name}.{section}.{key}' は数値である必要があります")
+                
+                # 新機能のバリデーション
+                condition_mode = strategy_config.get('condition_mode', 'any_two_of_three')
+                if condition_mode not in self.valid_condition_modes:
+                    raise ConfigError(f"戦略 '{strategy_name}': condition_mode は {self.valid_condition_modes} のいずれかである必要があります")
+                
+                # weighted_score モードの場合
+                if condition_mode == 'weighted_score':
+                    min_score = strategy_config.get('min_score', 0.6)
+                    if not 0 <= min_score <= 1:
+                        raise ConfigError(f"戦略 '{strategy_name}': min_score は0-1の範囲である必要があります")
+                    
+                    weights = strategy_config.get('weights', {})
+                    required_weights = ['dividend_weight', 'per_weight', 'pbr_weight']
+                    weight_sum = 0
+                    
+                    for weight_key in required_weights:
+                        if weight_key in weights:
+                            weight_value = weights[weight_key]
+                            if not 0 <= weight_value <= 1:
+                                raise ConfigError(f"戦略 '{strategy_name}': {weight_key} は0-1の範囲である必要があります")
+                            weight_sum += weight_value
+                    
+                    if abs(weight_sum - 1.0) > 0.01:  # 誤差を考慮
+                        print(f"警告: 戦略 '{strategy_name}' の重みの合計が1.0になっていません（現在: {weight_sum:.2f}）")
                 
                 # 論理チェック
                 buy_conditions = strategy_config['buy_conditions']

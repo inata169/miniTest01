@@ -1,0 +1,35 @@
+{
+  "default_strategy": {
+    "buy_conditions": {
+      "dividend_yield_min": 3.0,
+      "per_max": 15.0,
+      "pbr_max": 1.5
+    },
+    "sell_conditions": {
+      "profit_target": 20.0,
+      "stop_loss": -10.0
+    }
+  },
+  "defensive_strategy": {
+    "buy_conditions": {
+      "dividend_yield_min": 2.5,
+      "per_max": 20.0,
+      "pbr_max": 2.0
+    },
+    "sell_conditions": {
+      "profit_target": 15.0,
+      "stop_loss": -8.0
+    }
+  },
+  "growth_strategy": {
+    "buy_conditions": {
+      "dividend_yield_min": 1.0,
+      "per_max": 25.0,
+      "pbr_max": 3.0
+    },
+    "sell_conditions": {
+      "profit_target": 30.0,
+      "stop_loss": -15.0
+    }
+  }
+}
