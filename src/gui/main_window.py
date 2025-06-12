@@ -1127,8 +1127,11 @@ PBR: 1.0 ✅ (設定: 4.0以下)
                     stock_info = data_source.get_stock_info(symbol_str)
                     
                     if stock_info:
-                        conditions_met, _ = self.check_strategy_conditions(symbol_str, stock_info)
-                        indicator = self.get_condition_indicator(conditions_met)
+                        conditions_met, _, sell_signal = self.check_strategy_conditions(symbol_str, stock_info)
+                        indicator = self.get_condition_indicator(conditions_met, sell_signal)
+                        # 売り信号がある場合は条件数を特別扱い
+                        if sell_signal:
+                            conditions_met = 99  # 売り信号用の特別値
                     else:
                         conditions_met = 0
                         indicator = "😴様子見"
@@ -1163,17 +1166,18 @@ PBR: 1.0 ✅ (設定: 4.0以下)
             self.holdings_tree.tag_configure('profit', foreground='green')
             self.holdings_tree.tag_configure('loss', foreground='red')
             
-            # 条件マッチング用の色分け（より鮮明で分かりやすく）
-            self.holdings_tree.tag_configure('condition_3', background='#c8e6c9', foreground='#1b5e20', font=self.japanese_font_bold)  # 🔥買い頃！（濃い緑）
-            self.holdings_tree.tag_configure('condition_2', background='#ffecb3', foreground='#e65100', font=self.japanese_font_bold)  # ⚡あと少し（オレンジ）
-            self.holdings_tree.tag_configure('condition_1', background='#ffcdd2', foreground='#b71c1c', font=self.japanese_font_bold)  # 👀要注目（赤）
-            self.holdings_tree.tag_configure('condition_0', background='#f5f5f5', foreground='#616161')  # 😴様子見（グレー）
+            # 条件マッチング用の色分け（売り信号を含む）
+            self.holdings_tree.tag_configure('condition_99', background='#ffebee', foreground='#c62828', font=self.japanese_font_bold)  # 💰利確/⛔損切り（ピンク）
+            self.holdings_tree.tag_configure('condition_3', background='#c8e6c9', foreground='#1b5e20', font=self.japanese_font_bold)   # 🔥買い頃！（濃い緑）
+            self.holdings_tree.tag_configure('condition_2', background='#fff3e0', foreground='#ef6c00', font=self.japanese_font_bold)   # ⚡検討中（薄いオレンジ）
+            self.holdings_tree.tag_configure('condition_1', background='#e3f2fd', foreground='#1976d2', font=self.japanese_font_bold)   # 👀監視中（青）
+            self.holdings_tree.tag_configure('condition_0', background='#f5f5f5', foreground='#616161')                               # 😴様子見（グレー）
             
         except Exception as e:
             messagebox.showerror("エラー", f"ポートフォリオ更新エラー: {str(e)}")
     
     def check_strategy_conditions(self, symbol, stock_info):
-        """戦略条件をチェックして条件マッチ数を返す"""
+        """戦略条件をチェックして条件マッチ数と売買判定を返す"""
         try:
             # デフォルト戦略を取得
             import json
@@ -1182,48 +1186,88 @@ PBR: 1.0 ✅ (設定: 4.0以下)
             
             strategy = strategies.get('default_strategy', {})
             buy_conditions = strategy.get('buy_conditions', {})
+            sell_conditions = strategy.get('sell_conditions', {})
             
-            # 各条件をチェック
-            conditions_met = 0
-            condition_details = []
+            # 買い条件チェック
+            buy_conditions_met = 0
+            buy_details = []
             
-            # 配当利回りチェック
-            dividend_yield = (stock_info.dividend_yield or 0) * 100  # 小数から%に変換
-            dividend_min = buy_conditions.get('dividend_yield_min', 1.0)
+            # 配当利回りチェック（厳しく設定）
+            dividend_yield = (stock_info.dividend_yield or 0) * 100
+            dividend_min = buy_conditions.get('dividend_yield_min', 2.0)
             if dividend_yield >= dividend_min:
-                conditions_met += 1
-                condition_details.append(f"配当 {dividend_yield:.1f}%≥{dividend_min}%")
+                buy_conditions_met += 1
+                buy_details.append(f"配当 {dividend_yield:.1f}%≥{dividend_min}%")
             
-            # PERチェック
+            # PERチェック（厳しく設定）
             per = stock_info.pe_ratio or 0
-            per_max = buy_conditions.get('per_max', 40.0)
+            per_max = buy_conditions.get('per_max', 12.0)
             if per > 0 and per <= per_max:
-                conditions_met += 1
-                condition_details.append(f"PER {per:.1f}≤{per_max}")
+                buy_conditions_met += 1
+                buy_details.append(f"PER {per:.1f}≤{per_max}")
             
-            # PBRチェック
+            # PBRチェック（厳しく設定）
             pbr = stock_info.pb_ratio or 0
-            pbr_max = buy_conditions.get('pbr_max', 4.0)
+            pbr_max = buy_conditions.get('pbr_max', 1.2)
             if pbr > 0 and pbr <= pbr_max:
-                conditions_met += 1
-                condition_details.append(f"PBR {pbr:.1f}≤{pbr_max}")
+                buy_conditions_met += 1
+                buy_details.append(f"PBR {pbr:.1f}≤{pbr_max}")
             
-            return conditions_met, condition_details
+            # 売り条件チェック（保有銘柄用）
+            sell_signal = self.check_sell_conditions(symbol, stock_info, sell_conditions)
+            
+            return buy_conditions_met, buy_details, sell_signal
             
         except Exception as e:
             print(f"条件チェックエラー: {e}")
-            return 0, []
+            return 0, [], None
     
-    def get_condition_indicator(self, conditions_met):
-        """条件マッチ数に応じた表示インジケーターを返す"""
+    def check_sell_conditions(self, symbol, stock_info, sell_conditions):
+        """売り条件をチェック"""
+        try:
+            # データベースから保有情報を取得
+            holdings = self.db.get_all_holdings()
+            holding_info = next((h for h in holdings if str(h['symbol']) == str(symbol)), None)
+            
+            if not holding_info:
+                return None
+            
+            # 利益率計算
+            acquisition_amount = holding_info.get('acquisition_amount', 0) or 0
+            market_value = holding_info.get('market_value', 0) or 0
+            profit_rate = ((market_value / acquisition_amount) - 1) * 100 if acquisition_amount > 0 else 0
+            
+            # 利益確定条件
+            profit_target = sell_conditions.get('profit_target', 15.0)
+            if profit_rate >= profit_target:
+                return f"💰利確推奨 (+{profit_rate:.1f}%)"
+            
+            # 損切り条件
+            stop_loss = sell_conditions.get('stop_loss', -8.0)
+            if profit_rate <= stop_loss:
+                return f"⛔損切り推奨 ({profit_rate:.1f}%)"
+            
+            return None
+            
+        except Exception as e:
+            print(f"売り条件チェックエラー: {e}")
+            return None
+    
+    def get_condition_indicator(self, conditions_met, sell_signal=None):
+        """条件マッチ数と売り信号に応じた表示インジケーターを返す"""
+        # 売り信号が最優先
+        if sell_signal:
+            return sell_signal
+        
+        # 買い条件の評価（より厳格に）
         if conditions_met >= 3:
             return "🔥買い頃！"  # 3条件すべて満たす
         elif conditions_met == 2:
-            return "⚡あと少し"  # 2条件満たす
+            return "⚡検討中"    # 2条件満たす（表現を控えめに）
         elif conditions_met == 1:
-            return "👀要注目"  # 1条件満たす
+            return "👀監視中"    # 1条件満たす
         else:
-            return "😴様子見"  # 条件満たさない
+            return "😴様子見"    # 条件満たさない
     
     def add_to_watchlist(self):
         """ウォッチリストに銘柄を追加"""
@@ -1246,8 +1290,8 @@ PBR: 1.0 ✅ (設定: 4.0以下)
                 return
             
             # 条件チェック
-            conditions_met, condition_details = self.check_strategy_conditions(symbol, stock_info)
-            indicator = self.get_condition_indicator(conditions_met)
+            conditions_met, condition_details, sell_signal = self.check_strategy_conditions(symbol, stock_info)
+            indicator = self.get_condition_indicator(conditions_met, sell_signal)
             
             # ステータス決定
             if target_price:
@@ -1314,8 +1358,8 @@ PBR: 1.0 ✅ (設定: 4.0以下)
                 stock_info = data_source.get_stock_info(symbol)
                 if stock_info:
                     # 条件チェック
-                    conditions_met, _ = self.check_strategy_conditions(symbol, stock_info)
-                    indicator = self.get_condition_indicator(conditions_met)
+                    conditions_met, _, sell_signal = self.check_strategy_conditions(symbol, stock_info)
+                    indicator = self.get_condition_indicator(conditions_met, sell_signal)
                     
                     # 目標価格チェック
                     target_price_str = values[4]
@@ -1856,8 +1900,8 @@ PBR: 1.0 ✅ (設定: 4.0以下)
                 return
             
             # 条件チェック
-            conditions_met, condition_details = self.check_strategy_conditions(symbol, stock_info)
-            indicator = self.get_condition_indicator(conditions_met)
+            conditions_met, condition_details, sell_signal = self.check_strategy_conditions(symbol, stock_info)
+            indicator = self.get_condition_indicator(conditions_met, sell_signal)
             
             # 価格差計算
             if target_price:
@@ -1978,8 +2022,8 @@ PBR: 1.0 ✅ (設定: 4.0以下)
                 stock_info = data_source.get_stock_info(symbol)
                 if stock_info:
                     # 条件チェック
-                    conditions_met, _ = self.check_strategy_conditions(symbol, stock_info)
-                    indicator = self.get_condition_indicator(conditions_met)
+                    conditions_met, _, sell_signal = self.check_strategy_conditions(symbol, stock_info)
+                    indicator = self.get_condition_indicator(conditions_met, sell_signal)
                     
                     # 価格差計算
                     target_price_str = values[4]

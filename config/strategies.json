@@ -71,7 +71,7 @@
   "custom_strategy": {
     "condition_mode": "strict_and",
     "buy_conditions": {
-      "dividend_yield_min": 3.0,
+      "dividend_yield_min": 4.0,
       "per_max": 10.0,
       "pbr_max": 1.0
     },
