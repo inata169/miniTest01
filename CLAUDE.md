@@ -27,6 +27,11 @@ python3 src/main.py --gui
 # Alternative run script
 ./run_app.sh
 
+# Windows GUI mode (recommended for settings)
+# PowerShell:
+.\venv_windows\Scripts\Activate.ps1
+python src/main.py --gui
+
 # Start monitoring daemon
 python3 src/main.py --daemon
 
@@ -142,6 +147,9 @@ src/
 3. **WSL GUI**: Export DISPLAY=:0 for X11 forwarding
 4. **Japanese font issues**: Install Noto CJK fonts on Linux
 5. **Alert notification stuck**: Fixed in v1.1.0 - notifications run on main thread
+6. **WSL X11 GUI Error**: [xcb] Unknown sequence number - Use Windows Python for GUI mode
+7. **f-string backslash error**: Fixed in v1.2.1 - Pre-process strings before f-string formatting
+8. **Windows PowerShell ExecutionPolicy**: Use `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`
 
 ## New Features in v1.1.0
 

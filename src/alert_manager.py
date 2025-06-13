@@ -153,6 +153,7 @@ class AlertManager:
             msg['Subject'] = subject
             
             # 本文
+            formatted_message = alert.message.replace('\\n', '\n')
             body = f"""
 株価アラート通知
 
@@ -163,7 +164,7 @@ class AlertManager:
 発生時刻: {alert.timestamp.strftime('%Y-%m-%d %H:%M:%S')}
 
 詳細:
-{alert.message.replace('\\n', '\n')}
+{formatted_message}
 
 ---
 日本株ウォッチドッグより自動送信
@@ -245,6 +246,7 @@ class AlertManager:
                 alert_type_text = '株価アラート'
             
             # LINEメッセージ構築
+            formatted_alert_message = alert.message.replace('\\n', '\n')
             message = f"""
 {icon} {alert_type_text}アラート
 
@@ -253,7 +255,7 @@ class AlertManager:
 戦略: {alert.strategy_name}
 時刻: {alert.timestamp.strftime('%Y-%m-%d %H:%M:%S')}
 
-{alert.message.replace('\\n', '\n')}
+{formatted_alert_message}
 
 ---
 日本株ウォッチドッグ

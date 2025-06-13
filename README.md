@@ -72,8 +72,8 @@ python setup.py
 #### 手動インストール
 ```bash
 # 1. リポジトリをクローン
-git clone https://github.com/your-username/japanese-stock-watchdog.git
-cd japanese-stock-watchdog
+git clone https://github.com/inata169/miniTest01.git
+cd miniTest01
 
 # 2. 仮想環境セットアップ（推奨）
 uv venv && source .venv/bin/activate
@@ -91,6 +91,8 @@ python src/main.py --gui
 ### 3. 初回設定
 
 #### GUIモード（推奨）
+
+**WSL/Linux環境:**
 ```bash
 # 仮想環境を有効化してから起動
 source .venv/bin/activate  # または ./activate_env.sh
@@ -98,9 +100,14 @@ python3 src/main.py --gui
 
 # 簡単起動スクリプト（v1.1.0+）
 ./run_app.sh
+```
 
-# Windows用バッチファイル
-run_gui.bat
+**Windows環境（GUI設定時推奨）:**
+```powershell
+# PowerShellで実行
+cd "C:\Users\放射治療研究用PC\Documents\ClaudeCode\miniTest01"
+.\venv_windows\Scripts\Activate.ps1
+python src/main.py --gui
 ```
 
 #### コマンドラインモード
