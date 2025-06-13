@@ -15,11 +15,17 @@ uv venv                                           # Create virtual environment
 source .venv/bin/activate                         # Activate (Linux/macOS)
 # or .venv\Scripts\activate                      # Activate (Windows)
 
-# Install dependencies
+# Install dependencies (including J Quants API)
 uv pip install -r requirements.txt
+uv pip install jquants-api-client                # J Quants API client
+uv pip install python-dotenv                     # Environment variable support
 
 # Quick activation (convenience script)
 ./activate_env.sh
+
+# Environment setup (.env configuration)
+cp .env.example .env                              # Copy template
+nano .env                                         # Edit with actual credentials
 
 # Run GUI application (main entry point) - v1.2.1+
 python3 src/main.py --gui
@@ -68,15 +74,16 @@ pip list
 - **PortfolioManager**: CSV import/parsing for SBI/Rakuten formats, portfolio tracking
 - **AlertManager**: Multi-channel notifications (email, Discord, desktop)
 - **TechnicalAnalysis**: RSI, moving averages, and other indicators (v1.2.0+)
-- **DataSources**: Yahoo Finance API integration for free stock data
+- **DataSources**: Multi-source data integration (J Quants API + Yahoo Finance fallback)
 - **ChartGenerator**: Interactive chart display with technical indicators (v1.2.0+)
 
 ### Data Flow
 1. CSV import from brokers → PortfolioManager → SQLite database
-2. StockMonitor fetches Yahoo Finance data → applies strategies → triggers alerts
+2. StockMonitor fetches J Quants/Yahoo Finance data → applies strategies → triggers alerts
 3. AlertManager sends notifications via configured channels (Discord, email, desktop)
 4. TechnicalAnalysis calculates indicators → generates enhanced signals (v1.2.0+)
 5. ChartGenerator displays interactive visualizations (v1.2.0+)
+6. MultiDataSource manages fallback: J Quants API → Yahoo Finance → Error handling
 
 ### Database Schema (SQLite)
 - `holdings`: symbol, name, quantity, average_cost, current_price
@@ -93,7 +100,8 @@ pip list
 - Handle Japanese characters correctly in stock names
 
 ### Free Data Sources
-- **Stock prices**: Yahoo Finance (yfinance library) - no API limits
+- **Stock prices**: J Quants API (primary) - Japanese stock market data, no rate limits
+- **Stock prices**: Yahoo Finance (fallback) - worldwide markets, rate limits may apply
 - **Financial data**: EDINET API (FSA Japan) - free government service
 - **Economic indicators**: FRED API - free Federal Reserve data
 - **Notifications**: Gmail SMTP, Discord Webhook (unlimited/free), LINE Notify (deprecated 2025/03)
@@ -103,6 +111,7 @@ pip list
 - `config/watchlist.json`: Monitored stocks and strategies
 - `config/strategies.json`: Buy/sell conditions per strategy
 - `config/encoding_settings.json`: CSV format specifications
+- `.env`: Environment variables for API tokens and credentials (secure)
 
 ### Investment Strategies
 - **Defensive**: Utilities, pharmaceuticals (dividend yield focus)
@@ -113,11 +122,12 @@ pip list
 
 ```
 src/
-├── main.py                    # Entry point
+├── main.py                    # Entry point with .env support
 ├── stock_monitor.py          # Core monitoring logic
 ├── portfolio_manager.py      # CSV parsing & portfolio tracking
-├── alert_manager.py          # Notification system
+├── alert_manager.py          # Notification system with .env
 ├── csv_parser.py            # SBI/Rakuten format parsers
+├── data_sources.py          # Multi-source data integration (J Quants + Yahoo)
 └── gui/                     # tkinter GUI components
 ```
 
@@ -126,10 +136,11 @@ src/
 - **Virtual Environment**: Always use uv venv for isolated dependency management
 - **Package Installation**: Use `uv pip install` instead of regular pip for better performance
 - **Environment Activation**: Use `./activate_env.sh` for quick activation
+- **Environment Variables**: Store all credentials in .env file, never in code
+- **Data Sources**: Prefer J Quants API for Japanese stocks, Yahoo Finance as fallback
 - Use SQLite for local data storage (no external DB required)
 - Handle all text in UTF-8 internally, convert only for CSV I/O
-- Implement graceful error handling for network requests
-- Follow Yahoo Finance API rate limits (avoid excessive requests)
+- Implement graceful error handling for network requests and API rate limits
 - All financial calculations should handle decimal precision carefully
 
 ## Environment Setup Notes
@@ -160,13 +171,11 @@ src/
    set SSL_CERT_FILE=
    python src/main.py --gui
    ```
-10. **Yahoo Finance API Rate Limiting**: 429 Too Many Requests error
-    - **Cause**: Too many API calls in short period or IP temporarily blocked
-    - **Solutions**: 
-      - Wait 24 hours for automatic IP unblock
-      - Use different network (mobile tethering)
-      - Test from different location/IP address
-    - **Prevention**: Implemented progressive delays and automatic retry logic
+10. **Yahoo Finance API Rate Limiting**: 429 Too Many Requests error (SOLVED in v1.3.0)
+    - **Previous Cause**: Too many API calls in short period or IP temporarily blocked
+    - **New Solution**: J Quants API as primary data source
+    - **Fallback**: Yahoo Finance only used when J Quants fails
+    - **Prevention**: Multi-source architecture eliminates single point of failure
 
 ## New Features in v1.1.0
 
@@ -449,6 +458,45 @@ Before implementing any advanced feature, ask:
 5. **Alternatives**: Can we solve this with configuration changes instead?
 
 **Remember**: A reliable, simple system that generates actionable alerts is more valuable than a complex system that's hard to maintain or understand.
+
+## New Features in v1.3.0 (December 2025)
+
+### 🔄 Data Source Revolution
+**J Quants API Integration**: Complete solution to Yahoo Finance rate limiting issues
+- **Primary Data Source**: J Quants API for Japanese stocks (unlimited, free)
+- **Automatic Fallback**: Yahoo Finance when J Quants unavailable
+- **Multi-source Architecture**: Robust error handling and failover
+- **Rate Limit Elimination**: No more 429 Too Many Requests errors
+
+### 🔐 Security Enhancement - .env Configuration
+**Industry Standard Security**: All credentials now managed via environment variables
+- **Environment Variables**: All API tokens, passwords stored in .env file
+- **Git Security**: .env automatically excluded from version control
+- **Backward Compatibility**: Existing JSON configs still supported
+- **Detailed Documentation**: Complete setup guide in .env.example
+
+### 🛠️ Technical Implementation
+**Core Architecture Updates**:
+```python
+# New multi-source data architecture
+from data_sources import MultiDataSource
+
+# Automatic .env loading
+from dotenv import load_dotenv
+load_dotenv()
+
+# J Quants + Yahoo Finance integration
+data_source = MultiDataSource(
+    jquants_email=os.getenv('JQUANTS_EMAIL'),
+    refresh_token=os.getenv('JQUANTS_REFRESH_TOKEN')
+)
+```
+
+### 📁 New Dependencies
+```bash
+uv pip install jquants-api-client    # J Quants API integration
+uv pip install python-dotenv         # Environment variable management
+```
 
 ## v1.3.0+ Development Roadmap (Future Features)
 

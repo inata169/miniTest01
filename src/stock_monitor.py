@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Callable
 from dataclasses import dataclass
 
-from data_sources import YahooFinanceDataSource, StockInfo
+from data_sources import YahooFinanceDataSource, MultiDataSource, StockInfo
 from database import DatabaseManager
 from logger import app_logger
 
@@ -35,8 +35,9 @@ class Alert:
 class StockMonitor:
     """株価監視クラス"""
     
-    def __init__(self, config_path: str = "config/strategies.json"):
-        self.data_source = YahooFinanceDataSource()
+    def __init__(self, config_path: str = "config/strategies.json", jquants_email: str = None, jquants_password: str = None, refresh_token: str = None):
+        # マルチデータソースを使用（J Quants API優先、Yahoo Financeフォールバック）
+        self.data_source = MultiDataSource(jquants_email, jquants_password, refresh_token)
         self.db = DatabaseManager()
         self.strategies = self.load_strategies(config_path)
         

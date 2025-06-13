@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Optional, Dict, List
 import threading
 import requests
+from dotenv import load_dotenv
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -29,6 +30,9 @@ class AlertManager:
     """アラート通知管理クラス"""
     
     def __init__(self, config_path: str = "config/settings.json"):
+        # .envファイルを読み込み
+        load_dotenv()
+        
         self.config = self.load_config(config_path)
         self.notification_methods = {
             'desktop': self._send_desktop_notification,

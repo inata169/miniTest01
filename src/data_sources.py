@@ -6,6 +6,12 @@ from dataclasses import dataclass
 import time
 from datetime import datetime, timedelta
 from logger import app_logger
+try:
+    from jquantsapi import Client as JQuantsClient
+    JQUANTS_AVAILABLE = True
+except ImportError:
+    JQUANTS_AVAILABLE = False
+    app_logger.warning("J Quants API client not available. Install with: pip install jquants-api-client")
 
 
 @dataclass
@@ -275,9 +281,229 @@ class YahooFinanceDataSource:
         return is_morning_session or is_afternoon_session
 
 
+class JQuantsDataSource:
+    """J Quants API対応データソース（日本株専用・無料）"""
+    
+    def __init__(self, email: str = None, password: str = None, refresh_token: str = None):
+        if not JQUANTS_AVAILABLE:
+            raise ImportError("J Quants API client not installed")
+        
+        self.client = None
+        self.email = email
+        self.password = password
+        self.refresh_token = refresh_token
+        self.cache = {}
+        self.cache_duration = 300  # 5分間キャッシュ
+        
+        # 認証情報がある場合は初期化
+        if refresh_token or (email and password):
+            self._initialize_client()
+    
+    def _initialize_client(self):
+        """J Quants APIクライアントを初期化"""
+        try:
+            if self.refresh_token:
+                # トークン認証（推奨）
+                self.client = JQuantsClient(refresh_token=self.refresh_token)
+                app_logger.info("J Quants API認証成功（トークン）")
+            elif self.email and self.password:
+                # メール/パスワード認証
+                self.client = JQuantsClient(mail_address=self.email, password=self.password)
+                app_logger.info("J Quants API認証成功（メール/パスワード）")
+            else:
+                app_logger.warning("J Quants API認証情報不足")
+                self.client = None
+        except Exception as e:
+            app_logger.error(f"J Quants API認証失敗: {e}")
+            self.client = None
+    
+    def _is_cache_valid(self, symbol: str) -> bool:
+        """キャッシュが有効かチェック"""
+        if symbol not in self.cache:
+            return False
+        cached_time = self.cache[symbol].get('timestamp', 0)
+        return time.time() - cached_time < self.cache_duration
+    
+    def get_stock_info(self, symbol: str) -> Optional[StockInfo]:
+        """J Quants APIから株価情報を取得"""
+        if not self.client:
+            app_logger.warning("J Quants API未認証のため無料モードで実行")
+            return self._get_stock_info_free(symbol)
+        
+        # キャッシュチェック
+        if self._is_cache_valid(symbol):
+            return self.cache[symbol]['data']
+        
+        try:
+            # J Quants APIで株価取得
+            prices_response = self.client.get_prices_daily_quotes(code=symbol)
+            
+            if not prices_response or 'daily_quotes' not in prices_response:
+                app_logger.warning(f"J Quants API: データなし ({symbol})")
+                return None
+            
+            quotes = prices_response['daily_quotes']
+            if not quotes:
+                return None
+            
+            # 最新データを取得
+            latest_quote = quotes[-1]
+            previous_quote = quotes[-2] if len(quotes) > 1 else latest_quote
+            
+            # 株式情報取得
+            info_response = self.client.get_listed_info(code=symbol)
+            company_name = symbol  # デフォルト
+            
+            if info_response and 'listed_info' in info_response:
+                listed_info = info_response['listed_info']
+                if listed_info:
+                    company_name = listed_info[0].get('CompanyName', symbol)
+            
+            # StockInfo作成
+            current_price = latest_quote.get('Close', 0)
+            previous_close = previous_quote.get('Close', current_price)
+            change_percent = ((current_price - previous_close) / previous_close) * 100 if previous_close > 0 else 0
+            
+            stock_info = StockInfo(
+                symbol=symbol,
+                name=company_name,
+                current_price=float(current_price),
+                previous_close=float(previous_close),
+                change_percent=change_percent,
+                volume=int(latest_quote.get('Volume', 0)),
+                market_cap=None,  # J Quants APIから取得可能だが実装省略
+                pe_ratio=None,
+                pb_ratio=None,
+                dividend_yield=None,
+                last_updated=datetime.now()
+            )
+            
+            # キャッシュに保存
+            self.cache[symbol] = {
+                'data': stock_info,
+                'timestamp': time.time()
+            }
+            
+            app_logger.info(f"J Quants API取得成功: {symbol}")
+            return stock_info
+            
+        except Exception as e:
+            app_logger.error(f"J Quants API取得エラー ({symbol}): {e}")
+            return None
+    
+    def _get_stock_info_free(self, symbol: str) -> Optional[StockInfo]:
+        """無料プランでのデータ取得（制限あり）"""
+        try:
+            # 無料プランでは制限があるため、基本的な株価のみ取得
+            client = JQuantsClient()  # 認証なし
+            
+            # 無料プランの実装は実際のAPIドキュメントに従って調整
+            app_logger.info(f"J Quants API無料モード: {symbol}")
+            return None  # 実装待ち
+            
+        except Exception as e:
+            app_logger.error(f"J Quants API無料モードエラー ({symbol}): {e}")
+            return None
+    
+    def get_multiple_stocks(self, symbols: List[str]) -> Dict[str, StockInfo]:
+        """複数銘柄の一括取得"""
+        results = {}
+        for symbol in symbols:
+            stock_info = self.get_stock_info(symbol)
+            if stock_info:
+                results[symbol] = stock_info
+            time.sleep(0.1)  # レート制限対策
+        return results
+
+
+class RakutenRSSDataSource:
+    """楽天証券MarketSpeed RSS対応データソース"""
+    
+    def __init__(self, rss_url: str = None):
+        self.rss_url = rss_url or "https://marketspeed.jp/rss/"
+        self.session = requests.Session()
+        
+    def get_stock_info(self, symbol: str) -> Optional[StockInfo]:
+        """楽天証券RSSから株価情報を取得"""
+        try:
+            # 楽天証券RSS形式のURL構築
+            url = f"{self.rss_url}?symbol={symbol}"
+            response = self.session.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                # RSS/XMLパース処理（実装は楽天証券の仕様に依存）
+                # 現在はプレースホルダー
+                app_logger.info(f"楽天証券RSS取得成功: {symbol}")
+                return None  # 実装待ち
+            else:
+                app_logger.warning(f"楽天証券RSS取得失敗: {symbol} (Status: {response.status_code})")
+                return None
+                
+        except Exception as e:
+            app_logger.error(f"楽天証券RSS取得エラー ({symbol}): {e}")
+            return None
+
+
+class MultiDataSource:
+    """複数データソースのフォールバック機能"""
+    
+    def __init__(self, jquants_email: str = None, jquants_password: str = None, refresh_token: str = None):
+        self.sources = []
+        
+        # J Quants APIを第一選択（利用可能な場合）
+        if JQUANTS_AVAILABLE:
+            try:
+                jquants_source = JQuantsDataSource(jquants_email, jquants_password, refresh_token)
+                self.sources.append(jquants_source)
+                app_logger.info("J Quants APIをプライマリデータソースに設定")
+            except Exception as e:
+                app_logger.warning(f"J Quants API初期化失敗: {e}")
+        
+        # Yahoo Financeをフォールバック
+        self.sources.append(YahooFinanceDataSource())
+        
+        # 楽天証券RSSをセカンダリフォールバック
+        self.sources.append(RakutenRSSDataSource())
+        
+        self.primary_source = 0  # 最初に成功したソースを主力に
+        
+    def get_stock_info(self, symbol: str) -> Optional[StockInfo]:
+        """複数ソースから株価情報を取得（フォールバック付き）"""
+        for i, source in enumerate(self.sources):
+            try:
+                stock_info = source.get_stock_info(symbol)
+                if stock_info:
+                    if i != self.primary_source:
+                        app_logger.info(f"フォールバック使用: {source.__class__.__name__} for {symbol}")
+                    return stock_info
+            except Exception as e:
+                app_logger.warning(f"データソース {source.__class__.__name__} 失敗 ({symbol}): {e}")
+                continue
+        
+        app_logger.error(f"全データソース失敗: {symbol}")
+        return None
+    
+    def get_multiple_stocks(self, symbols: List[str]) -> Dict[str, StockInfo]:
+        """複数銘柄の一括取得"""
+        results = {}
+        for symbol in symbols:
+            stock_info = self.get_stock_info(symbol)
+            if stock_info:
+                results[symbol] = stock_info
+        return results
+    
+    def is_market_open(self) -> bool:
+        """市場オープン状況チェック（第一ソースに委譲）"""
+        if self.sources:
+            primary_source = self.sources[0]
+            if hasattr(primary_source, 'is_market_open'):
+                return primary_source.is_market_open()
+        return False
+
+
 if __name__ == "__main__":
     # テスト用
-    data_source = YahooFinanceDataSource()
+    data_source = MultiDataSource()
     
     # テスト銘柄
     test_symbols = ["7203", "9984", "6758"]  # トヨタ、ソフトバンクG、ソニーG

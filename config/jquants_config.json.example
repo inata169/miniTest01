@@ -1,0 +1,10 @@
+{
+  "refresh_token": "your-refresh-token-here",
+  "email": "your-email@example.com",
+  "password": "your-password",
+  "note": "認証方法の優先順位: 1.refresh_token（推奨）, 2.email+password",
+  "usage": {
+    "method1": "refresh_tokenのみ設定（推奨・安全）",
+    "method2": "email+passwordを設定（非推奨）"
+  }
+}

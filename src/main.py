@@ -18,16 +18,50 @@ from stock_monitor import StockMonitor
 from alert_manager import AlertManager
 from database import DatabaseManager
 from data_sources import YahooFinanceDataSource
+import json
+import os
+from dotenv import load_dotenv
 
 
 class WatchdogApp:
     """メインアプリケーションクラス"""
     
     def __init__(self):
-        self.monitor = StockMonitor()
+        # .envファイルを読み込み
+        load_dotenv()
+        
+        # J Quants API認証情報を環境変数から取得
+        jquants_email, jquants_password, refresh_token = self._load_jquants_config()
+        
+        self.monitor = StockMonitor(jquants_email=jquants_email, jquants_password=jquants_password, refresh_token=refresh_token)
         self.alert_manager = AlertManager()
         self.db = DatabaseManager()
         self.data_source = YahooFinanceDataSource()
+    
+    def _load_jquants_config(self):
+        """J Quants API設定を.envファイルまたはJSON設定ファイルから読み込み"""
+        # Method 1: 環境変数から取得（推奨）
+        refresh_token = os.getenv('JQUANTS_REFRESH_TOKEN')
+        email = os.getenv('JQUANTS_EMAIL')
+        password = os.getenv('JQUANTS_PASSWORD')
+        
+        if refresh_token or (email and password):
+            print("J Quants API認証情報を環境変数から読み込みました")
+            return email, password, refresh_token
+        
+        # Method 2: JSON設定ファイルから取得（後方互換性）
+        config_path = "config/jquants_config.json"
+        try:
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    print("J Quants API認証情報をJSONファイルから読み込みました")
+                    return config.get('email'), config.get('password'), config.get('refresh_token')
+        except Exception as e:
+            print(f"J Quants設定読み込みエラー: {e}")
+        
+        print("J Quants API認証情報が見つかりません。Yahoo Financeをフォールバックとして使用します。")
+        return None, None, None
         
         # アラートコールバック設定
         self.monitor.add_alert_callback(self.alert_manager.send_alert)

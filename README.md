@@ -1,11 +1,11 @@
 # 日本株ウォッチドッグ (Japanese Stock Watchdog)
 
-![バージョン](https://img.shields.io/badge/version-1.2.1-blue.svg)
+![バージョン](https://img.shields.io/badge/version-1.3.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-green.svg)
 ![ライセンス](https://img.shields.io/badge/license-MIT-orange.svg)
 ![プラットフォーム](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 
-日本株式市場をリアルタイムで監視し、設定した条件に基づいて売買タイミングをアラートする**完全無料**の自動化投資支援システムです。SBI証券・楽天証券のCSVファイルから保有銘柄を自動インポートし、Yahoo Finance APIを使用してリアルタイム株価監視を行います。
+日本株式市場をリアルタイムで監視し、設定した条件に基づいて売買タイミングをアラートする**完全無料**の自動化投資支援システムです。SBI証券・楽天証券のCSVファイルから保有銘柄を自動インポートし、**J Quants API（無料）**および**Yahoo Finance API**を使用してリアルタイム株価監視を行います。
 
 ## 🌟 主要機能
 
@@ -18,10 +18,12 @@
 - **日本株・米国株対応**: 4桁コード（日本株）とティッカー（米国株）の両方をサポート
 
 ### 📈 株価監視・アラート
-- **Yahoo Finance API**: 無料・無制限の株価データ取得
+- **🆕 J Quants API**: 日本株特化の無料データソース（レート制限回避）
+- **Yahoo Finance API**: フォールバック用データソース
+- **マルチデータソース**: J Quants → Yahoo Finance 自動切り替え
 - **投資戦略別アラート**: 配当利回り・PER・PBRベースの買い条件
 - **利益確定・損切りアラート**: 設定した利益率・損失率に達した際の自動通知
-- **多様な通知方法**: デスクトップ通知、メール（Gmail SMTP）、コンソール表示
+- **多様な通知方法**: Gmail、Discord、LINE Notify、デスクトップ通知
 
 ### 🔍 高度な分析機能
 - **テクニカル分析**: RSI、移動平均線、ボリンジャーバンド（将来実装）
@@ -55,6 +57,33 @@ uv pip install -r requirements.txt
 
 # 簡単アクティベーション（作成済み）
 ./activate_env.sh
+
+### 🔑 認証設定（.env方式）
+
+#### 3. 環境変数設定（推奨・セキュア）
+```bash
+# 設定テンプレートをコピー
+cp .env.example .env
+
+# .envファイルを編集（秘密情報を設定）
+nano .env
+```
+
+**基本設定例**:
+```env
+# J Quants API（日本株データ取得・推奨）
+JQUANTS_REFRESH_TOKEN=your_jquants_refresh_token
+
+# Gmail通知（オプション）
+GMAIL_USERNAME=your_email@gmail.com
+GMAIL_APP_PASSWORD=your_16_digit_app_password
+
+# Discord通知（オプション）
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/123/abc
+
+# LINE Notify（オプション・2025年3月終了予定）
+LINE_NOTIFY_TOKEN=your_line_token
+```
 ```
 
 #### 自動セットアップ（従来方式）
@@ -646,6 +675,48 @@ dist/
 - **メモリ**: 2GB以上推奨
 - **ストレージ**: 200MB以上の空き容量
 - **ネット接続**: 株価データ取得用
+
+## 🆕 v1.3.0 新機能（2025年12月リリース）
+
+### 🔥 データソース革命 - Yahoo Finance制限問題を完全解決
+
+#### **J Quants API統合（無料・日本株特化）**
+- **完全無料**: J Quants Personal Plan（制限なし）
+- **日本市場特化**: 東証データ直接提供で高品質
+- **レート制限なし**: Yahoo Finance 429エラーを完全回避
+- **リアルタイムデータ**: 20分遅延だが安定した高品質データ
+- **財務データ充実**: PER、PBR、配当利回り等の包括的データ
+
+#### **🔄 マルチデータソース・フォールバック**
+```
+優先順位: J Quants API → Yahoo Finance → その他
+- 第一選択: J Quants（日本株専用・高品質）
+- フォールバック: Yahoo Finance（レート制限時）
+- 自動切り替え: エラー時の無停止データ取得
+```
+
+#### **🔐 .env完全対応 - 業界標準セキュリティ**
+すべての秘密情報を.envファイルで一元管理：
+- **J Quants API認証**: リフレッシュトークン方式
+- **Gmail通知**: アプリパスワード
+- **Discord Webhook**: Webhook URL
+- **LINE Notify**: アクセストークン
+- **Git除外**: .envファイルは自動的にGit管理対象外
+
+```env
+# .env ファイル例
+JQUANTS_REFRESH_TOKEN=your_token_here
+GMAIL_USERNAME=your@gmail.com
+GMAIL_APP_PASSWORD=abcd_efgh_ijkl_mnop
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/123/abc
+LINE_NOTIFY_TOKEN=your_line_token
+```
+
+### 🛡️ セキュリティ強化
+- **環境変数優先**: .env → 設定ファイル の順で読み込み
+- **後方互換性**: 既存の設定ファイルも継続利用可能
+- **詳細ガイド**: .env.example に完全な設定手順を記載
+- **自動読み込み**: python-dotenv による自動.env読み込み
 
 ## 🆕 v1.2.1 新機能（2025年12月リリース）
 
