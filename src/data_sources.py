@@ -114,8 +114,41 @@ class YahooFinanceDataSource:
             return stock_info
             
         except Exception as e:
+            # 429エラー（レート制限）の場合は特別な処理
+            if "429" in str(e) or "Too Many Requests" in str(e):
+                print(f"レート制限エラー ({symbol}): 30秒待機してリトライします...")
+                time.sleep(30)
+                # リトライ1回のみ
+                try:
+                    ticker = yf.Ticker(formatted_symbol)
+                    info = ticker.info
+                    hist = ticker.history(period="2d")
+                    if not hist.empty:
+                        current_price = hist['Close'].iloc[-1]
+                        previous_close = hist['Close'].iloc[-2] if len(hist) > 1 else current_price
+                        change_percent = ((current_price - previous_close) / previous_close) * 100 if previous_close > 0 else 0
+                        
+                        stock_info = StockInfo(
+                            symbol=symbol,
+                            name=info.get('shortName', info.get('longName', symbol)),
+                            current_price=float(current_price),
+                            previous_close=float(previous_close),
+                            change_percent=change_percent,
+                            volume=int(hist['Volume'].iloc[-1]) if not pd.isna(hist['Volume'].iloc[-1]) else 0,
+                            market_cap=info.get('marketCap'),
+                            pe_ratio=info.get('trailingPE'),
+                            pb_ratio=info.get('priceToBook'),
+                            dividend_yield=info.get('dividendYield'),
+                            last_updated=datetime.now()
+                        )
+                        self.cache[formatted_symbol] = {'data': stock_info, 'timestamp': time.time()}
+                        return stock_info
+                except:
+                    pass
+                print(f"レート制限継続 ({symbol}): スキップしました")
+                return None
             # 404エラーは銘柄が見つからない場合なので、より分かりやすいメッセージに
-            if "404" in str(e):
+            elif "404" in str(e):
                 print(f"銘柄が見つかりません ({symbol}): Yahoo Financeにデータがない可能性があります")
             else:
                 print(f"株価取得エラー ({symbol}): {e}")
@@ -139,19 +172,30 @@ class YahooFinanceDataSource:
         if uncached_symbols:
             app_logger.info(f"株価データ取得: {len(uncached_symbols)}銘柄（キャッシュ済み: {len(results)}銘柄）")
             
-            # バッチサイズで分割して取得（レート制限対策）
-            batch_size = 5
-            for i in range(0, len(uncached_symbols), batch_size):
-                batch = uncached_symbols[i:i+batch_size]
+            # 段階的にバッチサイズを調整（レート制限対策）
+            batch_size = 1  # 一度に1銘柄のみ取得
+            error_count = 0
+            
+            for i, symbol in enumerate(uncached_symbols):
+                stock_info = self.get_stock_info(symbol)
+                if stock_info:
+                    results[symbol] = stock_info
+                    error_count = 0  # 成功時はエラーカウントリセット
+                else:
+                    error_count += 1
+                    
+                # エラーが3回連続で発生した場合は大幅に待機時間を延長
+                if error_count >= 3:
+                    print(f"連続エラー発生: 60秒待機します... (残り{len(uncached_symbols)-i-1}銘柄)")
+                    time.sleep(60)
+                    error_count = 0
                 
-                for symbol in batch:
-                    stock_info = self.get_stock_info(symbol)
-                    if stock_info:
-                        results[symbol] = stock_info
-                
-                # バッチ間の待機時間（レート制限対策）
-                if i + batch_size < len(uncached_symbols):
-                    time.sleep(0.5)
+                # 各リクエスト間の待機時間（段階的に延長）
+                if i < len(uncached_symbols) - 1:
+                    if error_count > 0:
+                        time.sleep(5.0)  # エラー発生時は長めに待機
+                    else:
+                        time.sleep(2.0)   # 通常時
         
         return results
     

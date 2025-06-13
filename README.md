@@ -107,6 +107,11 @@ python3 src/main.py --gui
 # PowerShellで実行
 cd "C:\Users\放射治療研究用PC\Documents\ClaudeCode\miniTest01"
 .\venv_windows\Scripts\Activate.ps1
+
+# IMPORTANT: SSL証明書エラー回避のため環境変数設定
+set CURL_CA_BUNDLE=
+set SSL_CERT_FILE=
+
 python src/main.py --gui
 ```
 
@@ -523,6 +528,62 @@ python -m pytest tests/ -v
 
 # 5. 設定ファイルの検証
 python src/config_validator.py
+```
+
+## 🔧 トラブルシューティング
+
+### Windows環境でのよくある問題
+
+#### **SSL証明書エラー**
+```
+株価取得エラー: curl: (77) error setting certificate verify locations
+```
+**解決方法**: 環境変数を設定してからアプリケーションを起動
+```cmd
+set CURL_CA_BUNDLE=
+set SSL_CERT_FILE=
+python src/main.py --gui
+```
+
+#### **Yahoo Finance API制限エラー**
+```
+429 Client Error: Too Many Requests
+```
+**原因**: 短時間での大量APIアクセスによるレート制限
+**解決方法**: 
+- 24時間待機（自動IP制限解除）
+- 異なるネットワーク接続（モバイルテザリング等）
+- 異なる場所からのアクセス
+
+#### **仮想環境エラー**
+```
+.\venv_windows\Scripts\activate : 用語として認識されません
+```
+**解決方法**: PowerShell実行ポリシーの変更
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+.\venv_windows\Scripts\Activate.ps1
+```
+
+### WSL環境での問題
+
+#### **X11 GUIエラー**
+```
+[xcb] Unknown sequence number while appending request
+```
+**解決方法**: Windows側Python環境でGUIを実行、WSL側ではデーモンモードを使用
+```bash
+# WSL側はデーモンモード推奨
+python src/main.py --daemon
+```
+
+#### **フォント問題**
+```
+日本語が正しく表示されない
+```
+**解決方法**: 
+```bash
+sudo apt install fonts-noto-cjk fonts-noto-cjk-extra
 ```
 
 ## 💻 Windows実行ファイル（EXE）

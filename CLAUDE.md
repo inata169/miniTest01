@@ -30,6 +30,9 @@ python3 src/main.py --gui
 # Windows GUI mode (recommended for settings)
 # PowerShell:
 .\venv_windows\Scripts\Activate.ps1
+# IMPORTANT: Set SSL environment variables for Windows
+set CURL_CA_BUNDLE=
+set SSL_CERT_FILE=
 python src/main.py --gui
 
 # Start monitoring daemon
@@ -150,6 +153,20 @@ src/
 6. **WSL X11 GUI Error**: [xcb] Unknown sequence number - Use Windows Python for GUI mode
 7. **f-string backslash error**: Fixed in v1.2.1 - Pre-process strings before f-string formatting
 8. **Windows PowerShell ExecutionPolicy**: Use `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`
+9. **Windows SSL Certificate Error**: curl: (77) error setting certificate verify locations
+   - **Solution**: Set environment variables before running
+   ```cmd
+   set CURL_CA_BUNDLE=
+   set SSL_CERT_FILE=
+   python src/main.py --gui
+   ```
+10. **Yahoo Finance API Rate Limiting**: 429 Too Many Requests error
+    - **Cause**: Too many API calls in short period or IP temporarily blocked
+    - **Solutions**: 
+      - Wait 24 hours for automatic IP unblock
+      - Use different network (mobile tethering)
+      - Test from different location/IP address
+    - **Prevention**: Implemented progressive delays and automatic retry logic
 
 ## New Features in v1.1.0
 
