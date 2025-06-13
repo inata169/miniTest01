@@ -17,6 +17,77 @@ from alert_manager import AlertManager
 from version import get_version_info
 
 
+class ToolTip:
+    """ツールチップクラス"""
+    
+    def __init__(self, widget, text=""):
+        self.widget = widget
+        self.text = text
+        self.tooltip_window = None
+        self.widget.bind("<Enter>", self.on_enter)
+        self.widget.bind("<Leave>", self.on_leave)
+        self.widget.bind("<Motion>", self.on_motion)
+    
+    def on_enter(self, event):
+        """マウスオーバー時"""
+        self.show_tooltip(event)
+    
+    def on_leave(self, event):
+        """マウス離脱時"""
+        self.hide_tooltip()
+    
+    def on_motion(self, event):
+        """マウス移動時"""
+        if self.tooltip_window:
+            self.update_tooltip_position(event)
+    
+    def show_tooltip(self, event):
+        """ツールチップ表示"""
+        if not self.text:
+            return
+            
+        if self.tooltip_window:
+            return
+        
+        x = event.x_root + 15
+        y = event.y_root + 10
+        
+        self.tooltip_window = tk.Toplevel(self.widget)
+        self.tooltip_window.wm_overrideredirect(True)
+        self.tooltip_window.wm_geometry(f"+{x}+{y}")
+        
+        # ツールチップスタイル
+        label = tk.Label(
+            self.tooltip_window,
+            text=self.text,
+            background="#ffffe0",
+            relief="solid",
+            borderwidth=1,
+            font=("Arial", 9),
+            justify=tk.LEFT,
+            padx=5,
+            pady=3
+        )
+        label.pack()
+    
+    def update_tooltip_position(self, event):
+        """ツールチップ位置更新"""
+        if self.tooltip_window:
+            x = event.x_root + 15
+            y = event.y_root + 10
+            self.tooltip_window.wm_geometry(f"+{x}+{y}")
+    
+    def hide_tooltip(self):
+        """ツールチップ非表示"""
+        if self.tooltip_window:
+            self.tooltip_window.destroy()
+            self.tooltip_window = None
+    
+    def update_text(self, new_text):
+        """ツールチップテキスト更新"""
+        self.text = new_text
+
+
 class MainWindow:
     """メインGUIウィンドウクラス"""
     
@@ -28,14 +99,24 @@ class MainWindow:
         # 日本語フォント設定
         self.setup_japanese_font()
         
-        # クラス初期化
+        # 初期化フラグ
+        self.initialization_complete = False
+        self.data_loading = False
+        
+        # 基本クラス初期化（軽量）
         self.csv_parser = CSVParser()
-        self.data_source = YahooFinanceDataSource()
         self.db = DatabaseManager()
         self.alert_manager = AlertManager()
         
+        # データソースは遅延初期化
+        self.data_source = None
+        
+        # GUI先行表示
         self.setup_ui()
-        self.load_portfolio_data()
+        self.update_status("起動中... データを読み込んでいます")
+        
+        # 非同期でデータ読み込み開始
+        self.root.after(100, self.async_load_portfolio_data)
     
     def setup_japanese_font(self):
         """日本語フォントを設定"""
@@ -114,8 +195,6 @@ class MainWindow:
         # ファイルメニュー
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="ファイル", menu=file_menu)
-        file_menu.add_command(label="CSVインポート", command=self.import_csv)
-        file_menu.add_separator()
         file_menu.add_command(label="終了", command=self.root.quit)
         
         # 表示メニュー
@@ -199,6 +278,11 @@ class MainWindow:
         self.sort_column = None
         self.sort_reverse = False
         
+        # ツールチップ設定
+        self.holdings_tooltip = ToolTip(self.holdings_tree, "")
+        self.holdings_tree.bind("<Motion>", self.on_holdings_motion)
+        self.holdings_tree.bind("<Leave>", self.on_holdings_leave)
+        
         # 列ヘッダー設定
         headers = {
             "condition_indicator": "条件",
@@ -230,6 +314,8 @@ class MainWindow:
         
         ttk.Button(button_frame, text="株価更新", command=self.update_prices).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="表示更新", command=self.refresh_portfolio).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="選択削除", command=self.delete_selected_holdings).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="全て削除", command=self.delete_all_holdings).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="アラートテスト", command=self.test_alert).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="LINEテスト", command=self.test_line_alert).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Discordテスト", command=self.test_discord_alert).pack(side=tk.LEFT, padx=5)
@@ -957,6 +1043,7 @@ PBR: 1.0 ✅ (設定: 4.0以下)
         if file_path:
             self.file_path_var.set(file_path)
     
+    
     def import_csv(self):
         """CSVインポート実行"""
         file_path = self.file_path_var.get()
@@ -1027,38 +1114,78 @@ PBR: 1.0 ✅ (設定: 4.0以下)
                 self.update_status("更新する銘柄がありません")
                 return
             
-            # 株価取得
-            price_updates = {}
+            # 有効な銘柄シンボルをフィルタリング
+            valid_symbols = []
             skipped_count = 0
-            error_count = 0
             
             for symbol in symbols:
-                # symbolを文字列に変換（より堅牢な変換）
                 try:
                     if symbol is None:
                         skipped_count += 1
                         continue
                     symbol_str = str(symbol).strip()
-                    if not symbol_str:  # 空文字列チェック
+                    if not symbol_str:
                         skipped_count += 1
                         continue
                 except (TypeError, AttributeError):
                     skipped_count += 1
                     continue
                 
-                # 疑似シンボルをスキップ
+                # 疑似シンボルをスキップ（より厳密なチェック）
                 if (symbol_str.startswith('PORTFOLIO_') or 
                     symbol_str.startswith('FUND_') or
                     symbol_str == 'STOCK_PORTFOLIO' or
-                    symbol_str == 'TOTAL_PORTFOLIO'):
+                    symbol_str == 'TOTAL_PORTFOLIO' or
+                    len(symbol_str) > 10):  # 通常の銘柄コードは10文字以下
+                    print(f"疑似シンボルをスキップ: {symbol_str}")
                     skipped_count += 1
                     continue
                 
-                stock_info = self.data_source.get_stock_info(symbol_str)
-                if stock_info:
-                    price_updates[symbol_str] = stock_info.current_price
-                else:
-                    error_count += 1
+                valid_symbols.append(symbol_str)
+            
+            # バッチ処理で株価取得（API制限対策）
+            price_updates = {}
+            error_count = 0
+            
+            if valid_symbols:
+                self.update_status(f"株価取得中... ({len(valid_symbols)}銘柄)")
+                
+                # 小バッチに分割してレート制限を回避
+                batch_size = 5
+                for i in range(0, len(valid_symbols), batch_size):
+                    batch = valid_symbols[i:i+batch_size]
+                    
+                    try:
+                        # バッチで取得（J Quants API優先）
+                        batch_results = self.data_source.get_multiple_stocks(batch)
+                        
+                        for symbol, stock_info in batch_results.items():
+                            if stock_info:
+                                price_updates[symbol] = stock_info.current_price
+                            else:
+                                error_count += 1
+                        
+                        # プログレス更新
+                        progress = min(i + batch_size, len(valid_symbols))
+                        self.update_status(f"株価取得中... ({progress}/{len(valid_symbols)})")
+                        
+                        # バッチ間でレート制限対策（J Quantsは不要だが、Yahoo Finance用）
+                        if i + batch_size < len(valid_symbols):
+                            import time
+                            time.sleep(0.5)  # 0.5秒待機
+                            
+                    except Exception as e:
+                        print(f"バッチ取得エラー: {e}")
+                        # 個別フォールバック
+                        for symbol in batch:
+                            try:
+                                stock_info = self.data_source.get_stock_info(symbol)
+                                if stock_info:
+                                    price_updates[symbol] = stock_info.current_price
+                                else:
+                                    error_count += 1
+                            except:
+                                error_count += 1
             
             # データベース更新
             total_symbols = len(symbols)
@@ -1516,10 +1643,61 @@ PBR: 1.0 ✅ (設定: 4.0以下)
             except Exception as e:
                 messagebox.showerror("エラー", f"アラート履歴クリアエラー: {str(e)}")
 
+    def async_load_portfolio_data(self):
+        """非同期でポートフォリオデータを読み込み"""
+        if self.data_loading:
+            return
+            
+        self.data_loading = True
+        
+        def load_in_background():
+            """バックグラウンドでデータ読み込み"""
+            try:
+                # データソースの遅延初期化（J Quants APIを優先）
+                if self.data_source is None:
+                    self.update_status_thread_safe("データソース初期化中...")
+                    from data_sources import MultiDataSource
+                    from dotenv import load_dotenv
+                    import os
+                    
+                    load_dotenv()
+                    jquants_email = os.getenv('JQUANTS_EMAIL')
+                    jquants_password = os.getenv('JQUANTS_PASSWORD') 
+                    refresh_token = os.getenv('JQUANTS_REFRESH_TOKEN')
+                    
+                    self.data_source = MultiDataSource(jquants_email, jquants_password, refresh_token)
+                
+                # ポートフォリオデータを読み込み
+                self.update_status_thread_safe("ポートフォリオデータ読み込み中...")
+                self.root.after(0, self.refresh_portfolio)
+                
+                # アラート履歴を読み込み
+                self.update_status_thread_safe("アラート履歴読み込み中...")
+                self.root.after(0, self.refresh_alerts)
+                
+                # 完了
+                self.initialization_complete = True
+                self.data_loading = False
+                self.update_status_thread_safe("準備完了")
+                
+            except Exception as e:
+                self.update_status_thread_safe(f"初期化エラー: {e}")
+                self.data_loading = False
+        
+        # バックグラウンドスレッドで実行
+        threading.Thread(target=load_in_background, daemon=True).start()
+    
+    def update_status_thread_safe(self, message):
+        """スレッドセーフなステータス更新"""
+        self.root.after(0, lambda: self.update_status(message))
+    
     def load_portfolio_data(self):
-        """起動時にポートフォリオデータを読み込み"""
-        self.refresh_portfolio()
-        self.refresh_alerts()
+        """起動時にポートフォリオデータを読み込み（互換性のため残存）"""
+        if not self.initialization_complete:
+            self.async_load_portfolio_data()
+        else:
+            self.refresh_portfolio()
+            self.refresh_alerts()
     
     def update_status(self, message):
         """ステータス更新"""
@@ -2093,6 +2271,181 @@ PBR: 1.0 ✅ (設定: 4.0以下)
         for values in data:
             self.wishlist_tree.insert("", tk.END, values=values)
     
+    def delete_selected_holdings(self):
+        """選択した保有銘柄を削除"""
+        selected_items = self.holdings_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("警告", "削除する銘柄を選択してください。")
+            return
+        
+        # 削除確認
+        selected_count = len(selected_items)
+        result = messagebox.askyesno(
+            "削除確認", 
+            f"選択した{selected_count}件の保有銘柄を削除しますか？\n\n"
+            "この操作は元に戻せません。"
+        )
+        
+        if result:
+            try:
+                deleted_symbols = []
+                for item in selected_items:
+                    values = self.holdings_tree.item(item, "values")
+                    symbol = values[1]  # 銘柄コード列
+                    
+                    # データベースから削除
+                    self.db.delete_holding(symbol)
+                    deleted_symbols.append(symbol)
+                
+                # 表示を更新
+                self.refresh_portfolio()
+                
+                messagebox.showinfo(
+                    "削除完了", 
+                    f"{len(deleted_symbols)}件の保有銘柄を削除しました:\n" + 
+                    ", ".join(deleted_symbols)
+                )
+                
+            except Exception as e:
+                messagebox.showerror("エラー", f"削除中にエラーが発生しました:\n{e}")
+    
+    def delete_all_holdings(self):
+        """全ての保有銘柄を削除"""
+        # 現在の保有銘柄数を確認
+        holdings_count = len(self.holdings_tree.get_children())
+        if holdings_count == 0:
+            messagebox.showinfo("情報", "削除する保有銘柄がありません。")
+            return
+        
+        # 削除確認（二重確認）
+        result = messagebox.askyesno(
+            "全削除確認", 
+            f"全ての保有銘柄（{holdings_count}件）を削除しますか？\n\n"
+            "⚠️ この操作は元に戻せません！ ⚠️\n\n"
+            "本当に削除しますか？"
+        )
+        
+        if result:
+            # 二重確認
+            final_result = messagebox.askyesno(
+                "最終確認", 
+                "本当に全ての保有銘柄を削除しますか？\n\n"
+                "この操作は取り消しできません。",
+                icon="warning"
+            )
+            
+            if final_result:
+                try:
+                    # データベースから全削除
+                    deleted_count = self.db.delete_all_holdings()
+                    
+                    # 表示を更新
+                    self.refresh_portfolio()
+                    
+                    messagebox.showinfo(
+                        "削除完了", 
+                        f"全ての保有銘柄（{deleted_count}件）を削除しました。"
+                    )
+                    
+                except Exception as e:
+                    messagebox.showerror("エラー", f"削除中にエラーが発生しました:\n{e}")
+
+    def on_holdings_motion(self, event):
+        """保有銘柄テーブルでのマウス移動"""
+        item = self.holdings_tree.identify_row(event.y)
+        if item:
+            values = self.holdings_tree.item(item, "values")
+            if values and len(values) > 1:
+                symbol = values[1]  # 銘柄コード
+                
+                # 株価詳細情報を取得してツールチップに表示
+                self.show_stock_tooltip(symbol, event)
+        else:
+            self.holdings_tooltip.hide_tooltip()
+    
+    def on_holdings_leave(self, event):
+        """保有銘柄テーブルからマウスが離れた"""
+        self.holdings_tooltip.hide_tooltip()
+    
+    def show_stock_tooltip(self, symbol, event):
+        """株価詳細ツールチップを表示"""
+        if not symbol or not self.data_source:
+            return
+        
+        # 疑似シンボルの場合はスキップ
+        if (symbol.startswith('PORTFOLIO_') or 
+            symbol.startswith('FUND_') or
+            symbol == 'STOCK_PORTFOLIO' or
+            symbol == 'TOTAL_PORTFOLIO'):
+            # 投資信託などの基本情報のみ表示
+            tooltip_text = f"📋 {symbol}\\n"
+            tooltip_text += "━━━━━━━━━━━━━━━━━━━━━━\\n"
+            tooltip_text += "💼 投資信託・ETF\\n"
+            tooltip_text += "ℹ️  詳細情報は証券会社サイトで確認"
+            
+            self.holdings_tooltip.update_text(tooltip_text)
+            if not self.holdings_tooltip.tooltip_window:
+                self.holdings_tooltip.show_tooltip(event)
+            return
+        
+        try:
+            # データソースから詳細情報を取得
+            stock_info = self.data_source.get_stock_info(symbol)
+            
+            if stock_info:
+                # ツールチップテキスト作成
+                tooltip_text = f"📊 {stock_info.name} ({symbol})\\n"
+                tooltip_text += f"━━━━━━━━━━━━━━━━━━━━━━\\n"
+                tooltip_text += f"💰 現在価格: ¥{stock_info.current_price:,.0f}\\n"
+                
+                if stock_info.pe_ratio:
+                    tooltip_text += f"📈 PER: {stock_info.pe_ratio:.2f}\\n"
+                else:
+                    tooltip_text += f"📈 PER: データなし\\n"
+                
+                if stock_info.pb_ratio:
+                    tooltip_text += f"📊 PBR: {stock_info.pb_ratio:.2f}\\n"
+                else:
+                    tooltip_text += f"📊 PBR: データなし\\n"
+                
+                if stock_info.dividend_yield:
+                    tooltip_text += f"💎 配当利回り: {stock_info.dividend_yield:.2f}%\\n"
+                else:
+                    tooltip_text += f"💎 配当利回り: データなし\\n"
+                
+                if stock_info.market_cap:
+                    if stock_info.market_cap >= 1000000000000:  # 1兆円以上
+                        cap_text = f"{stock_info.market_cap/1000000000000:.1f}兆円"
+                    elif stock_info.market_cap >= 100000000000:  # 1000億円以上
+                        cap_text = f"{stock_info.market_cap/100000000000:.1f}千億円"
+                    else:
+                        cap_text = f"{stock_info.market_cap/100000000:.0f}億円"
+                    tooltip_text += f"🏢 時価総額: {cap_text}\\n"
+                
+                tooltip_text += f"📅 更新: {datetime.now().strftime('%H:%M:%S')}"
+                
+                # ツールチップ更新
+                self.holdings_tooltip.update_text(tooltip_text)
+                
+                # 位置調整
+                x = event.x_root + 15
+                y = event.y_root + 10
+                if self.holdings_tooltip.tooltip_window:
+                    self.holdings_tooltip.tooltip_window.wm_geometry(f"+{x}+{y}")
+                else:
+                    self.holdings_tooltip.show_tooltip(event)
+            else:
+                # データ取得失敗
+                self.holdings_tooltip.update_text(f"❌ {symbol}\\nデータ取得失敗")
+                if not self.holdings_tooltip.tooltip_window:
+                    self.holdings_tooltip.show_tooltip(event)
+                    
+        except Exception as e:
+            # エラー時
+            self.holdings_tooltip.update_text(f"⚠️ {symbol}\\nエラー: {str(e)[:50]}")
+            if not self.holdings_tooltip.tooltip_window:
+                self.holdings_tooltip.show_tooltip(event)
+
     def run(self):
         """アプリケーション実行"""
         self.root.mainloop()

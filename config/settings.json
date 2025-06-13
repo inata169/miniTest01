@@ -23,13 +23,13 @@
     },
     "discord": {
       "enabled": true,
-      "webhook_url": "https://discord.com/api/webhooks/1381956535860596746/Gu969VmRloZ7G_r5WNHwbcV-GX7EeSTSIb2-ju6cXBnc9x32OoZDf2boZEsWuqNk7u3s"
+      "webhook_url": ""
     }
   },
   "monitoring": {
-    "check_interval_minutes": 5,
+    "check_interval_minutes": 30,
     "market_hours_only": true,
     "market_start_hour": 9,
-    "market_end_hour": 16
+    "market_end_hour": 15
   }
 }

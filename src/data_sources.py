@@ -220,14 +220,34 @@ class YahooFinanceDataSource:
                     'last_dividend_date': None
                 }
             
-            # 過去1年の配当合計
-            one_year_ago = pd.Timestamp.now() - timedelta(days=365)
-            recent_dividends = dividends[dividends.index >= one_year_ago]
+            # 配当データが異常に多い場合の対策（通常は年4回程度）
+            if len(dividends) > 50:
+                # 最近の1年分のみ使用
+                one_year_ago = pd.Timestamp.now() - timedelta(days=365)
+                recent_dividends = dividends[dividends.index >= one_year_ago]
+            else:
+                # 最新の配当4回分を使用（四半期配当想定）
+                recent_dividends = dividends.tail(4)
+            
             annual_dividend = recent_dividends.sum()
             
-            # 現在価格での配当利回り計算
-            current_price = self.get_current_price(symbol)
-            dividend_yield = (annual_dividend / current_price * 100) if current_price > 0 else 0
+            # 現在価格での配当利回り計算（ticker再利用で効率化）
+            try:
+                current_data = ticker.history(period="1d", interval="1d")
+                if not current_data.empty:
+                    current_price = float(current_data['Close'].iloc[-1])
+                    
+                    # 配当利回りの妥当性チェック
+                    if annual_dividend > 0 and current_price > 0:
+                        raw_yield = (annual_dividend / current_price * 100)
+                        # 異常値の場合は0にリセット（15%超は異常値として扱う）
+                        dividend_yield = raw_yield if raw_yield <= 15.0 else 0
+                    else:
+                        dividend_yield = 0
+                else:
+                    dividend_yield = 0
+            except:
+                dividend_yield = 0
             
             return {
                 'annual_dividend': float(annual_dividend),
@@ -304,10 +324,12 @@ class JQuantsDataSource:
         try:
             if self.refresh_token:
                 # トークン認証（推奨）
+                app_logger.info(f"J Quants API認証試行中（トークン長: {len(self.refresh_token)}文字）")
                 self.client = JQuantsClient(refresh_token=self.refresh_token)
-                app_logger.info("J Quants API認証成功（トークン）")
+                app_logger.info("J Quants APIクライアント初期化完了（トークン）")
             elif self.email and self.password:
                 # メール/パスワード認証
+                app_logger.info(f"J Quants API認証試行中（メール: {self.email}）")
                 self.client = JQuantsClient(mail_address=self.email, password=self.password)
                 app_logger.info("J Quants API認証成功（メール/パスワード）")
             else:
@@ -324,8 +346,24 @@ class JQuantsDataSource:
         cached_time = self.cache[symbol].get('timestamp', 0)
         return time.time() - cached_time < self.cache_duration
     
+    def _format_jquants_symbol(self, symbol: str) -> str:
+        """J Quants API用銘柄コード変換（4桁→5桁）"""
+        # 4桁の場合は末尾に0を追加
+        if len(symbol) == 4 and symbol.isdigit():
+            return symbol + "0"
+        return symbol
+    
     def get_stock_info(self, symbol: str) -> Optional[StockInfo]:
         """J Quants APIから株価情報を取得"""
+        # 疑似シンボルの場合は即座にNoneを返す
+        if (symbol.startswith('PORTFOLIO_') or 
+            symbol.startswith('FUND_') or
+            symbol == 'STOCK_PORTFOLIO' or
+            symbol == 'TOTAL_PORTFOLIO' or
+            len(symbol) > 10):
+            app_logger.info(f"J Quants API: 疑似シンボルをスキップ ({symbol})")
+            return None
+            
         if not self.client:
             app_logger.warning("J Quants API未認証のため無料モードで実行")
             return self._get_stock_info_free(symbol)
@@ -335,28 +373,43 @@ class JQuantsDataSource:
             return self.cache[symbol]['data']
         
         try:
+            # J Quants API用銘柄コード変換
+            jquants_code = self._format_jquants_symbol(symbol)
+            app_logger.info(f"J Quants API: {symbol} → {jquants_code}")
+            
             # J Quants APIで株価取得
-            prices_response = self.client.get_prices_daily_quotes(code=symbol)
+            prices_response = self.client.get_prices_daily_quotes(code=jquants_code)
             
-            if not prices_response or 'daily_quotes' not in prices_response:
-                app_logger.warning(f"J Quants API: データなし ({symbol})")
-                return None
-            
-            quotes = prices_response['daily_quotes']
-            if not quotes:
+            # DataFrameレスポンスの処理
+            if hasattr(prices_response, 'empty'):
+                if prices_response.empty:
+                    app_logger.warning(f"J Quants API: DataFrameが空 ({symbol})")
+                    return None
+                quotes = [prices_response.iloc[-1].to_dict()]  # 最新行をdictに変換
+            elif isinstance(prices_response, dict) and 'daily_quotes' in prices_response:
+                quotes = prices_response['daily_quotes']
+                if not quotes:
+                    app_logger.warning(f"J Quants API: データなし ({symbol})")
+                    return None
+            else:
+                app_logger.warning(f"J Quants API: 未知のレスポンス形式 ({symbol})")
                 return None
             
             # 最新データを取得
             latest_quote = quotes[-1]
             previous_quote = quotes[-2] if len(quotes) > 1 else latest_quote
             
-            # 株式情報取得
-            info_response = self.client.get_listed_info(code=symbol)
+            # 株式情報取得（同じコード変換を適用）
+            info_response = self.client.get_listed_info(code=jquants_code)
             company_name = symbol  # デフォルト
             
-            if info_response and 'listed_info' in info_response:
+            # DataFrameレスポンスの処理
+            if hasattr(info_response, 'empty'):
+                if not info_response.empty:
+                    company_name = info_response.iloc[0].get('CompanyName', symbol)
+            elif isinstance(info_response, dict) and 'listed_info' in info_response:
                 listed_info = info_response['listed_info']
-                if listed_info:
+                if listed_info and len(listed_info) > 0:
                     company_name = listed_info[0].get('CompanyName', symbol)
             
             # StockInfo作成
@@ -394,12 +447,10 @@ class JQuantsDataSource:
     def _get_stock_info_free(self, symbol: str) -> Optional[StockInfo]:
         """無料プランでのデータ取得（制限あり）"""
         try:
-            # 無料プランでは制限があるため、基本的な株価のみ取得
-            client = JQuantsClient()  # 認証なし
-            
-            # 無料プランの実装は実際のAPIドキュメントに従って調整
-            app_logger.info(f"J Quants API無料モード: {symbol}")
-            return None  # 実装待ち
+            # J Quants APIの無料プランは認証が必要なため、
+            # 認証情報がない場合はすぐにフォールバックする
+            app_logger.info(f"J Quants API無料モード: 認証情報不足のためスキップ ({symbol})")
+            return None
             
         except Exception as e:
             app_logger.error(f"J Quants API無料モードエラー ({symbol}): {e}")
@@ -502,8 +553,17 @@ class MultiDataSource:
 
 
 if __name__ == "__main__":
-    # テスト用
-    data_source = MultiDataSource()
+    # テスト用 - 環境変数から認証情報を読み込み
+    from dotenv import load_dotenv
+    import os
+    
+    load_dotenv()
+    
+    jquants_email = os.getenv('JQUANTS_EMAIL')
+    jquants_password = os.getenv('JQUANTS_PASSWORD')
+    refresh_token = os.getenv('JQUANTS_REFRESH_TOKEN')
+    
+    data_source = MultiDataSource(jquants_email, jquants_password, refresh_token)
     
     # テスト銘柄
     test_symbols = ["7203", "9984", "6758"]  # トヨタ、ソフトバンクG、ソニーG

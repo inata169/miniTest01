@@ -251,6 +251,48 @@ class DatabaseManager:
                 print(f"アラート履歴クリアエラー: {e}")
                 return False
 
+    def delete_holding(self, symbol: str) -> bool:
+        """指定した銘柄を保有銘柄から削除"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM holdings WHERE symbol = ?', (symbol,))
+                deleted_rows = cursor.rowcount
+                conn.commit()
+                
+                if deleted_rows > 0:
+                    print(f"保有銘柄削除: {symbol}")
+                    return True
+                else:
+                    print(f"削除対象が見つかりません: {symbol}")
+                    return False
+                    
+        except sqlite3.Error as e:
+            print(f"保有銘柄削除エラー: {e}")
+            return False
+    
+    def delete_all_holdings(self) -> int:
+        """全ての保有銘柄を削除"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # 削除前に件数確認
+                cursor.execute('SELECT COUNT(*) FROM holdings')
+                count_before = cursor.fetchone()[0]
+                
+                # 全削除実行
+                cursor.execute('DELETE FROM holdings')
+                deleted_count = cursor.rowcount
+                conn.commit()
+                
+                print(f"保有銘柄全削除: {deleted_count}件削除")
+                return deleted_count
+                
+        except sqlite3.Error as e:
+            print(f"保有銘柄全削除エラー: {e}")
+            return 0
+    
     def get_portfolio_summary(self) -> Dict:
         """ポートフォリオサマリーを取得"""
         with sqlite3.connect(self.db_path) as conn:
