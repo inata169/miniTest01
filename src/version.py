@@ -32,6 +32,8 @@ def get_release_name(version):
         '1.0.0': 'Initial Release',
         '1.1.0': 'Alert & Sort Enhancement',
         '1.2.0': 'Advanced Monitoring',
+        '1.2.1': 'UI Enhancement & Bug Fix',
+        '1.3.0': 'Data Source Revolution & Security Enhancement',
         '2.0.0': 'Major Upgrade'
     }
     return release_names.get(version, 'Development Version')

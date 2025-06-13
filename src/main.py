@@ -18,6 +18,7 @@ from stock_monitor import StockMonitor
 from alert_manager import AlertManager
 from database import DatabaseManager
 from data_sources import YahooFinanceDataSource
+from version import VERSION, get_version_info
 import json
 import os
 from dotenv import load_dotenv
@@ -335,8 +336,18 @@ def main():
     parser = argparse.ArgumentParser(description="日本株ウォッチドッグ")
     parser.add_argument('--daemon', action='store_true', help='デーモンモードで実行')
     parser.add_argument('--gui', action='store_true', help='GUIモードで実行')
+    parser.add_argument('--version', action='store_true', help='バージョン情報を表示')
     
     args = parser.parse_args()
+    
+    # バージョン情報表示
+    if args.version:
+        version_info = get_version_info()
+        print(f"日本株ウォッチドッグ v{version_info['version']}")
+        print(f"リリース名: {version_info['release_name']}")
+        print(f"J Quants API統合・.env対応版")
+        print("https://github.com/inata169/miniTest01")
+        return
     
     if args.gui:
         # GUIモード
