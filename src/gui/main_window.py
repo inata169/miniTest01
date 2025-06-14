@@ -96,7 +96,7 @@ class MainWindow:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("日本株ウォッチドッグ (Japanese Stock Watchdog)")
-        self.root.geometry("1300x910")  # 1000x700 * 1.3
+        self.root.geometry("1300x930")  # 1000x700 * 1.3 + 20px
         
         # 日本語フォント設定
         self.setup_japanese_font()
@@ -213,18 +213,20 @@ class MainWindow:
         # 指数ラベルを格納する辞書
         self.indices_labels = {}
         
-        # 2行2列のグリッドレイアウト
+        # 横1列のレイアウト
         indices_data = [
             ('nikkei', '📈 日経平均: データ読み込み中...', 0, 0),
             ('topix', '📊 TOPIX: データ読み込み中...', 0, 1),
-            ('dow', '🇺🇸 ダウ平均: データ読み込み中...', 1, 0),
-            ('sp500', '🇺🇸 S&P500: データ読み込み中...', 1, 1)
+            ('dow', '🇺🇸 ダウ平均: データ読み込み中...', 0, 2),
+            ('sp500', '🇺🇸 S&P500: データ読み込み中...', 0, 3)
         ]
         
         for key, default_text, row, col in indices_data:
+            # S&P500の表示幅を広くする
+            width = 32 if key == 'sp500' else 28
             label = tk.Label(display_frame, text=default_text, 
-                           font=self.japanese_font, anchor='w', width=35)
-            label.grid(row=row, column=col, padx=10, pady=5, sticky='w')
+                           font=self.japanese_font, anchor='w', width=width)
+            label.grid(row=row, column=col, padx=5, pady=5, sticky='w')
             self.indices_labels[key] = label
         
         # 更新ボタンフレーム
@@ -236,10 +238,11 @@ class MainWindow:
                                command=self.update_market_indices)
         update_btn.pack(side=tk.LEFT)
         
-        # 自動更新チェックボックス
-        self.auto_update_indices = tk.BooleanVar(value=True)
+        # 自動更新チェックボックス（設定を復元）
+        self.auto_update_indices = tk.BooleanVar(value=self.load_monitoring_setting('auto_update_indices', True))
         auto_update_cb = ttk.Checkbutton(button_frame, text="自動更新 (5分間隔)", 
-                                       variable=self.auto_update_indices)
+                                       variable=self.auto_update_indices,
+                                       command=self.save_monitoring_settings)
         auto_update_cb.pack(side=tk.LEFT, padx=(10, 0))
         
         # 最終更新時刻ラベル
@@ -1113,6 +1116,46 @@ class MainWindow:
             
         except Exception as e:
             messagebox.showerror("エラー", f"テストに失敗しました: {e}")
+    
+    def load_monitoring_setting(self, key, default_value):
+        """監視設定を読み込み"""
+        try:
+            import json
+            settings_file = "config/gui_settings.json"
+            
+            if os.path.exists(settings_file):
+                with open(settings_file, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+                    return settings.get('monitoring_ui', {}).get(key, default_value)
+            return default_value
+        except Exception:
+            return default_value
+    
+    def save_monitoring_settings(self):
+        """監視設定を保存"""
+        try:
+            import json
+            settings_file = "config/gui_settings.json"
+            
+            # 既存設定を読み込み
+            settings = {}
+            if os.path.exists(settings_file):
+                with open(settings_file, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+            
+            # 監視UI設定を更新
+            if 'monitoring_ui' not in settings:
+                settings['monitoring_ui'] = {}
+            
+            settings['monitoring_ui']['auto_update_indices'] = self.auto_update_indices.get()
+            
+            # 設定を保存
+            os.makedirs("config", exist_ok=True)
+            with open(settings_file, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+                
+        except Exception as e:
+            print(f"監視設定保存エラー: {e}")
     
     def create_explanation_ui(self, parent_frame):
         """説明パネルを作成"""
@@ -2348,20 +2391,24 @@ PBR: 1.0 ✅ (設定: 4.0以下)
             "日本株ウォッチドッグについて",
             f"日本株ウォッチドッグ v{version_info['version']}\n"
             f"リリース: {version_info['release_name']}\n\n"
-            "📈 日本株式投資を支援する無料オープンソースツール\n"
-            "🏦 SBI証券・楽天証券のCSVインポート対応\n"
-            "📊 リアルタイム株価監視とアラート機能\n\n"
-            "🔄 データソース: Yahoo Finance API (無料)\n"
-            "📧 通知: Discord, Gmail, LINE, デスクトップ\n"
-            "📋 ログ機能: 詳細な動作履歴を記録\n\n"
-            "💰 収益率 = (評価金額 ÷ 取得金額 - 1) × 100%\n"
-            "📋 ※テーブルヘッダークリックでソート可能\n\n"
-            "🚀 v1.2.0の新機能:\n"
-            "✅ 強化されたアラートシステム (4つの評価モード)\n"
-            "⚡ バッチ処理による高速化 (3-5倍向上)\n"
-            "📝 包括的ログシステム\n"
-            "🔧 設定検証とエラーハンドリング改善\n"
-            "🎯 現実的な市場条件に対応した戦略設定"
+            "📈 日本株式市場をリアルタイム監視する完全無料ツール\n"
+            "🏦 SBI証券・楽天証券CSVインポート完全対応\n"
+            "📊 日本株・米国株のリアルタイム株価監視\n\n"
+            "🔄 データソース: J Quants API（日本株専用・無料）\n"
+            "📈 フォールバック: Yahoo Finance API（世界株式対応）\n"
+            "📧 通知: Discord, Gmail, デスクトップ通知\n\n"
+            "💰 収益率計算: (評価金額 ÷ 取得金額 - 1) × 100%\n"
+            "📊 財務指標: PER・PBR・ROE・配当利回り表示\n"
+            "📈 配当分析: 過去5年間の配当履歴グラフ\n\n"
+            "🎯 v1.4.4の主要機能:\n"
+            "✅ Windows完全対応（ワンクリック起動）\n"
+            "⚡ J Quants API統合（レート制限回避）\n"
+            "🔍 マウスホバー銘柄詳細表示\n"
+            "📊 主要市場指数リアルタイム表示\n"
+            "🎨 配当可視化と投資判断支援\n\n"
+            "🌟 サラリーマン投資家の皆様へ:\n"
+            "⏰ 忙しい毎日でも効率的な投資判断をサポート\n"
+            "💸 完全無料・オープンソースで安心利用"
         )
     
     def add_to_wishlist_tab(self):
