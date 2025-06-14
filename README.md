@@ -124,8 +124,17 @@
 
 ## 🚀 クイックスタート
 
+### ⭐ Windows超簡単セットアップ（5分で完了）
+```cmd
+cd C:\Users\%USERNAME%\Documents\python
+git clone https://github.com/inata169/miniTest01.git
+cd miniTest01
+setup_windows.bat
+run_app.bat
+```
+
 ### 1. システム要件
-- **Python**: 3.8以上
+- **Python**: 3.8以上（Windows Store版推奨）
 - **OS**: Windows 10/11、macOS 10.14+、Ubuntu 18.04+
 - **メモリ**: 512MB以上
 - **ディスク容量**: 200MB以上
@@ -133,7 +142,23 @@
 
 ### 2. インストール
 
-#### 推奨セットアップ
+#### 🪟 Windows 推奨セットアップ（動作実証済み）
+```cmd
+# 1. 作業ディレクトリに移動
+cd C:\Users\%USERNAME%\Documents\python
+
+# 2. リポジトリをクローン
+git clone https://github.com/inata169/miniTest01.git
+cd miniTest01
+
+# 3. ワンクリック自動セットアップ
+setup_windows.bat
+
+# 4. アプリ起動
+run_app.bat
+```
+
+#### 🐧 Linux/macOS 推奨セットアップ
 ```bash
 # 1. リポジトリをクローン
 git clone https://github.com/inata169/miniTest01.git
@@ -143,7 +168,6 @@ cd miniTest01
 curl -LsSf https://astral.sh/uv/install.sh | sh  # uvインストール（初回のみ）
 uv venv                                           # 仮想環境作成
 source .venv/bin/activate                         # Linux/macOS
-# または .venv\\Scripts\\activate                 # Windows
 
 # 3. 依存関係をインストール
 uv pip install -r requirements.txt
@@ -206,25 +230,39 @@ cp .env.example .env
 nano .env  # またはcode .env
 ```
 
-#### 🪟 Windows 11 - ワンクリック簡単インストール（v1.4.4+）
+#### 🪟 Windows 11 - 完全動作確認済みインストール（v1.4.4+）⭐推奨
 
-**🚀 超簡単セットアップ（推奨）**:
+**🚀 確実セットアップ（実証済み・推奨）**:
 ```cmd
-# 1. ZIPダウンロード or gitクローン
+# 1. 作業ディレクトリに移動
+cd C:\Users\%USERNAME%\Documents\python
+
+# 2. 既存フォルダがあれば削除
+rmdir /s /q miniTest01-main
+rmdir /s /q miniTest01
+
+# 3. 最新リポジトリをクローン
 git clone https://github.com/inata169/miniTest01.git
 cd miniTest01
 
-# 2. ワンクリックセットアップ
+# 4. 自動セットアップ実行（依存関係解決・検証付き）
 setup_windows.bat
 
-# 3. ワンクリック起動
+# 5. アプリ起動
 run_app.bat
 ```
 
-**📋 バッチファイルの内容**:
-- **setup_windows.bat**: 依存関係の段階的インストール（コンパイルエラー回避）
+**✅ 動作確認済みの特徴**:
+- **段階的インストール**: numpy/matplotlib コンパイルエラー自動回避
+- **フォールバック処理**: エラー時の自動代替インストール
+- **パッケージ検証**: インストール後の動作確認
+- **SSL対策**: Windows SSL証明書問題の自動解決
+
+**📋 提供されるバッチファイル**:
+- **setup_windows.bat**: メインセットアップ（エラーハンドリング強化済み）
 - **run_app.bat**: SSL設定 + アプリ起動
-- **install_minimal.bat**: 緊急時の最小限インストール
+- **fix_matplotlib.bat**: matplotlib専用緊急修復スクリプト
+- **install_minimal.bat**: 最小限構成での緊急起動
 
 **🔧 手動セットアップ（従来方式）**:
 ```cmd
@@ -307,10 +345,29 @@ pip install yfinance
 ```
 
 #### 📝 動作確認手順
+
+**Windows（推奨）**:
+```cmd
+# 1. セットアップ完了後の確認
+setup_windows.bat 実行時に以下が表示されれば成功：
+matplotlib: OK
+numpy: OK
+pandas: OK
+Setup completed successfully!
+
+# 2. アプリケーション起動
+run_app.bat
+
+# 3. 起動確認メッセージ
+🚀 日本株ウォッチドッグ - GUI起動中...
+📋 初期設定を行っています。しばらくお待ちください...
+✅ 初期化完了！画面を表示します
+```
+
+**Linux/macOS**:
 ```bash
 # 1. 仮想環境が有効化されていることを確認
-which python  # LinuxならLinux/macOS
-where python   # Windows
+which python
 
 # 2. 必要パッケージがインストールされていることを確認
 python -c "import tkinter; print('tkinter: OK')"
@@ -319,8 +376,6 @@ python -c "import requests; print('requests: OK')"
 
 # 3. アプリケーション起動テスト
 python src/main.py --gui
-
-# 成功すると「今は初期設定を行っています...」メッセージが表示されます
 ```
 
 ### 3. 環境設定（.env方式）
@@ -348,25 +403,25 @@ DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/123/abc
 
 ### 4. アプリケーション起動
 
-#### GUIモード（推奨）
+#### 🪟 Windows（推奨・最も簡単）
+```cmd
+# ワンクリック起動
+run_app.bat
+
+# または手動実行
+venv_windows\Scripts\activate.bat
+set CURL_CA_BUNDLE=
+set SSL_CERT_FILE=
+python src/main.py --gui
+```
+
+#### 🐧 Linux/macOS GUIモード
 ```bash
 # 仮想環境を有効化
 source .venv/bin/activate
 
 # GUIアプリケーション起動
 python3 src/main.py --gui
-```
-
-#### Windows環境
-```powershell
-# PowerShellで実行
-.venv\\Scripts\\Activate.ps1
-
-# SSL証明書エラー回避（Windows）
-set CURL_CA_BUNDLE=
-set SSL_CERT_FILE=
-
-python src/main.py --gui
 ```
 
 ## 📥 CSVインポート手順
