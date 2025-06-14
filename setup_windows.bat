@@ -30,9 +30,17 @@ pip install --no-deps requests
 pip install --no-deps openpyxl
 pip install --no-deps email-validator
 
-:: Install packages with precompiled binaries
+:: Install packages with precompiled binaries (retry with fallbacks)
 echo Installing scientific packages...
 pip install --only-binary=all numpy==1.24.3 matplotlib==3.7.2 pandas==2.0.3
+if errorlevel 1 (
+    echo Trying alternative versions...
+    pip install --only-binary=all numpy matplotlib pandas
+    if errorlevel 1 (
+        echo Installing without version constraints...
+        pip install numpy matplotlib pandas
+    )
+)
 
 :: Install remaining packages
 echo Installing remaining packages...
@@ -40,7 +48,20 @@ pip install yfinance beautifulsoup4 lxml html5lib
 
 :: Try to install J Quants API client (optional)
 echo Installing J Quants API client...
-pip install jquants-api-client --no-deps || echo J Quants API client installation failed, continuing...
+pip install jquants-api-client --no-deps
+if errorlevel 1 echo J Quants API client installation failed, continuing...
+
+:: Verify critical packages
+echo Verifying installations...
+python -c "import matplotlib; print('matplotlib: OK')"
+if errorlevel 1 (
+    echo matplotlib installation failed, trying alternative method...
+    pip install --upgrade matplotlib pillow
+)
+python -c "import numpy; print('numpy: OK')"
+if errorlevel 1 echo WARNING: numpy not properly installed
+python -c "import pandas; print('pandas: OK')"
+if errorlevel 1 echo WARNING: pandas not properly installed
 
 :: Create directories
 echo Creating required directories...
