@@ -82,6 +82,20 @@ class DatabaseManager:
                 )
             ''')
             
+            # 欲しい銘柄テーブル
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS wishlist (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    target_price REAL,
+                    memo TEXT DEFAULT '',
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
             conn.commit()
     
     def insert_holdings(self, holdings: List[Holding]) -> int:
@@ -180,6 +194,78 @@ class DatabaseManager:
             ''')
             
             return [dict(row) for row in cursor.fetchall()]
+    
+    def add_to_wishlist(self, symbol: str, name: str, target_price: Optional[float] = None, memo: str = '') -> bool:
+        """欲しい銘柄に追加"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO wishlist 
+                    (symbol, name, target_price, memo, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (symbol, name, target_price, memo, datetime.now()))
+                
+                conn.commit()
+                return True
+            except sqlite3.Error as e:
+                print(f"欲しい銘柄追加エラー: {e}")
+                return False
+    
+    def get_wishlist(self) -> List[Dict]:
+        """欲しい銘柄一覧を取得"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT * FROM wishlist 
+                WHERE is_active = 1
+                ORDER BY created_at DESC
+            ''')
+            
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def delete_from_wishlist(self, symbol: str) -> bool:
+        """欲しい銘柄から削除"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute('DELETE FROM wishlist WHERE symbol = ?', (symbol,))
+                deleted_rows = cursor.rowcount
+                conn.commit()
+                
+                if deleted_rows > 0:
+                    print(f"欲しい銘柄削除: {symbol}")
+                    return True
+                else:
+                    print(f"削除対象が見つかりません: {symbol}")
+                    return False
+            except sqlite3.Error as e:
+                print(f"欲しい銘柄削除エラー: {e}")
+                return False
+    
+    def delete_from_watchlist(self, symbol: str) -> bool:
+        """監視リストから削除"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute('DELETE FROM watchlist WHERE symbol = ?', (symbol,))
+                deleted_rows = cursor.rowcount
+                conn.commit()
+                
+                if deleted_rows > 0:
+                    print(f"監視リスト削除: {symbol}")
+                    return True
+                else:
+                    print(f"削除対象が見つかりません: {symbol}")
+                    return False
+            except sqlite3.Error as e:
+                print(f"監視リスト削除エラー: {e}")
+                return False
     
     def log_alert(self, symbol: str, alert_type: str, message: str, 
                   triggered_price: Optional[float] = None, 

@@ -351,13 +351,30 @@ def main():
     
     if args.gui:
         # GUIモード
+        print("🚀 日本株ウォッチドッグ - GUI起動中...")
+        print("📋 初期設定を行っています。しばらくお待ちください...")
+        print("💾 データベースの準備...")
+        
         try:
             from gui.main_window import MainWindow
+            print("🎨 画面の初期化中...")
             app = MainWindow()
+            print("✅ 初期化完了！画面を表示します")
+            print("💡 Tip: アプリが重い場合は、メニューの「ツール」→「データベースクリーンアップ」をお試しください")
             app.run()
         except ImportError as e:
-            print(f"GUIモジュールの読み込みエラー: {e}")
-            print("src/gui/main_window.py が存在することを確認してください")
+            print(f"❌ GUIモジュールの読み込みエラー: {e}")
+            print("🔧 解決方法:")
+            print("   1. src/gui/main_window.py が存在することを確認してください")
+            print("   2. tkinterがインストールされていることを確認してください:")
+            print("      - Ubuntu/Linux: sudo apt install python3-tk")
+            print("      - Windows: 通常は自動でインストールされています")
+        except Exception as e:
+            print(f"❌ アプリケーション起動エラー: {e}")
+            print("🔧 解決方法:")
+            print("   1. 必要な依存関係がインストールされていることを確認してください")
+            print("   2. pip install -r requirements.txt を実行してください")
+            print("   3. 詳細なログは logs/ ディレクトリで確認できます")
     elif args.daemon:
         # デーモンモード
         app = WatchdogApp()

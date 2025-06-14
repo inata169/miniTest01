@@ -13,9 +13,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from csv_parser import CSVParser
 from data_sources import YahooFinanceDataSource, MultiDataSource
 from database import DatabaseManager
-from alert_manager import AlertManager
+from alert_manager import AlertManager, Alert
 from version import get_version_info
 from dividend_visualizer import DividendVisualizer
+from market_indices import MarketIndicesManager
 
 
 class ToolTip:
@@ -112,6 +113,7 @@ class MainWindow:
         # データソースは遅延初期化
         self.data_source = None
         self.dividend_visualizer = DividendVisualizer()
+        self.market_indices_manager = MarketIndicesManager()
         
         # GUI先行表示
         self.setup_ui()
@@ -119,6 +121,9 @@ class MainWindow:
         
         # 非同期でデータ読み込み開始
         self.root.after(100, self.async_load_portfolio_data)
+        
+        # グローバルクリックイベントでコンテキストメニューをクリーンアップ
+        self.root.bind('<Button-1>', self._on_global_click, add='+')
     
     def setup_japanese_font(self):
         """日本語フォントを設定"""
@@ -170,6 +175,9 @@ class MainWindow:
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
+        # 市場指数パネル
+        self.create_market_indices_panel(main_frame)
+        
         # タブコントロール
         self.notebook = ttk.Notebook(main_frame)
         self.notebook.pack(fill=tk.BOTH, expand=True)
@@ -188,6 +196,136 @@ class MainWindow:
         
         # ステータスバー
         self.create_status_bar()
+        
+        # 初期データ読み込み（UIが構築された後）
+        self.root.after(100, self.load_initial_data)
+    
+    def create_market_indices_panel(self, parent):
+        """市場指数パネルを作成"""
+        # 市場指数フレーム
+        indices_frame = ttk.LabelFrame(parent, text="📊 主要市場指数", padding=10)
+        indices_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # 指数表示ラベルのフレーム
+        display_frame = ttk.Frame(indices_frame)
+        display_frame.pack(fill=tk.X)
+        
+        # 指数ラベルを格納する辞書
+        self.indices_labels = {}
+        
+        # 2行2列のグリッドレイアウト
+        indices_data = [
+            ('nikkei', '📈 日経平均: データ読み込み中...', 0, 0),
+            ('topix', '📊 TOPIX: データ読み込み中...', 0, 1),
+            ('dow', '🇺🇸 ダウ平均: データ読み込み中...', 1, 0),
+            ('sp500', '🇺🇸 S&P500: データ読み込み中...', 1, 1)
+        ]
+        
+        for key, default_text, row, col in indices_data:
+            label = tk.Label(display_frame, text=default_text, 
+                           font=self.japanese_font, anchor='w', width=35)
+            label.grid(row=row, column=col, padx=10, pady=5, sticky='w')
+            self.indices_labels[key] = label
+        
+        # 更新ボタンフレーム
+        button_frame = ttk.Frame(indices_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # 更新ボタン
+        update_btn = ttk.Button(button_frame, text="🔄 指数更新", 
+                               command=self.update_market_indices)
+        update_btn.pack(side=tk.LEFT)
+        
+        # 自動更新チェックボックス
+        self.auto_update_indices = tk.BooleanVar(value=True)
+        auto_update_cb = ttk.Checkbutton(button_frame, text="自動更新 (5分間隔)", 
+                                       variable=self.auto_update_indices)
+        auto_update_cb.pack(side=tk.LEFT, padx=(10, 0))
+        
+        # 最終更新時刻ラベル
+        self.indices_last_update_label = tk.Label(button_frame, 
+                                                text="最終更新: 未取得", 
+                                                font=("Arial", 8),
+                                                fg="gray")
+        self.indices_last_update_label.pack(side=tk.RIGHT)
+        
+        # 初期データ読み込み（非同期）
+        self.root.after(2000, self.update_market_indices)
+        
+        # 自動更新タイマー（5分間隔）
+        self.schedule_indices_update()
+    
+    def schedule_indices_update(self):
+        """市場指数の自動更新をスケジュール"""
+        if self.auto_update_indices.get():
+            self.update_market_indices()
+        
+        # 5分後に再実行
+        self.root.after(300000, self.schedule_indices_update)  # 300000ms = 5分
+    
+    def update_market_indices(self):
+        """市場指数を更新"""
+        def update_in_background():
+            """バックグラウンドで指数を取得"""
+            try:
+                self.root.after(0, lambda: self.indices_last_update_label.config(text="更新中..."))
+                
+                # 指数データを取得
+                indices = self.market_indices_manager.get_all_indices()
+                
+                # UIを更新（メインスレッドで実行）
+                def update_ui():
+                    try:
+                        for key, index_info in indices.items():
+                            if key in self.indices_labels:
+                                display_text = self.market_indices_manager.format_index_display(index_info)
+                                
+                                # 色分け
+                                color = "black"
+                                if index_info.change > 0:
+                                    color = "green"
+                                elif index_info.change < 0:
+                                    color = "red"
+                                
+                                self.indices_labels[key].config(text=display_text, fg=color)
+                        
+                        # 最終更新時刻を更新
+                        from datetime import datetime
+                        now = datetime.now().strftime("%H:%M:%S")
+                        self.indices_last_update_label.config(text=f"最終更新: {now}")
+                        
+                    except Exception as e:
+                        print(f"市場指数UI更新エラー: {e}")
+                        self.indices_last_update_label.config(text="更新エラー")
+                
+                self.root.after(0, update_ui)
+                
+            except Exception as e:
+                print(f"市場指数取得エラー: {e}")
+                self.root.after(0, lambda: self.indices_last_update_label.config(text="取得エラー"))
+        
+        # バックグラウンドスレッドで実行
+        import threading
+        thread = threading.Thread(target=update_in_background, daemon=True)
+        thread.start()
+    
+    def load_initial_data(self):
+        """初期データを読み込み"""
+        try:
+            self.update_status("💾 欲しい銘柄データを読み込み中...")
+            self.load_wishlist_data()
+            
+            self.update_status("👀 監視リストデータを読み込み中...")
+            self.load_watchlist_data()
+            
+            self.update_status("✅ 準備完了！日本株ウォッチドッグをお楽しみください")
+            
+            # 3秒後に通常のステータスに戻す
+            self.root.after(3000, lambda: self.update_status("待機中 - CSVインポートまたは株価更新をお試しください"))
+            
+        except Exception as e:
+            print(f"初期データ読み込みエラー: {e}")
+            self.update_status("⚠️ 初期データ読み込み中にエラーが発生しました")
     
     def create_menu(self):
         """メニューバー作成"""
@@ -196,21 +334,50 @@ class MainWindow:
         
         # ファイルメニュー
         file_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="ファイル", menu=file_menu)
-        file_menu.add_command(label="終了", command=self.root.quit)
+        menubar.add_cascade(label="💼 ファイル", menu=file_menu)
+        file_menu.add_command(label="📂 CSVインポート", command=lambda: self.notebook.select(1))
+        file_menu.add_command(label="💾 データエクスポート", command=self.export_data)
+        file_menu.add_separator()
+        file_menu.add_command(label="⚙️ 設定", command=self.show_settings)
+        file_menu.add_separator()
+        file_menu.add_command(label="🚪 終了", command=self.root.quit)
         
         # 表示メニュー
         view_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="表示", menu=view_menu)
-        view_menu.add_command(label="ポートフォリオ更新", command=self.refresh_portfolio)
-        view_menu.add_command(label="株価更新", command=self.update_prices)
+        menubar.add_cascade(label="👁️ 表示", menu=view_menu)
+        view_menu.add_command(label="🔄 ポートフォリオ更新", command=self.refresh_portfolio)
+        view_menu.add_command(label="📈 株価更新", command=self.update_prices)
+        view_menu.add_command(label="👀 監視リスト更新", command=self.update_watchlist_prices)
+        view_menu.add_command(label="💝 欲しい銘柄更新", command=self.update_wishlist_prices)
+        view_menu.add_separator()
+        view_menu.add_command(label="📊 ポートフォリオタブ", command=lambda: self.notebook.select(0))
+        view_menu.add_command(label="📥 インポートタブ", command=lambda: self.notebook.select(1))
+        view_menu.add_command(label="🔍 監視タブ", command=lambda: self.notebook.select(2))
+        view_menu.add_command(label="🚨 アラートタブ", command=lambda: self.notebook.select(3))
+        
+        # ツールメニュー
+        tools_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="🔧 ツール", menu=tools_menu)
+        tools_menu.add_command(label="🧪 アラートテスト", command=self.test_alert_system)
+        tools_menu.add_command(label="🔔 通知設定", command=self.show_notification_settings)
+        tools_menu.add_separator()
+        tools_menu.add_command(label="📋 戦略設定", command=self.show_strategy_settings)
+        tools_menu.add_command(label="📈 配当分析", command=self.show_dividend_analysis)
+        tools_menu.add_separator()
+        tools_menu.add_command(label="🗑️ アラート履歴クリア", command=self.clear_alert_history)
+        tools_menu.add_command(label="🧹 データベースクリーンアップ", command=self.cleanup_database)
         
         # ヘルプメニュー
         help_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="ヘルプ", menu=help_menu)
-        help_menu.add_command(label="CSVファイル取得方法", command=self.show_csv_help)
+        menubar.add_cascade(label="❓ ヘルプ", menu=help_menu)
+        help_menu.add_command(label="📋 CSVファイル取得方法", command=self.show_csv_help)
+        help_menu.add_command(label="📚 使い方ガイド", command=self.show_user_guide)
+        help_menu.add_command(label="⌨️ ショートカットキー", command=self.show_shortcuts)
         help_menu.add_separator()
-        help_menu.add_command(label="バージョン情報", command=self.show_about)
+        help_menu.add_command(label="🔗 GitHub", command=self.open_github)
+        help_menu.add_command(label="📧 フィードバック", command=self.show_feedback)
+        help_menu.add_separator()
+        help_menu.add_command(label="ℹ️ バージョン情報", command=self.show_about)
     
     def create_portfolio_tab(self):
         """ポートフォリオタブ作成"""
@@ -399,6 +566,9 @@ class MainWindow:
             else:
                 self.watchlist_tree.column(col, width=70, anchor=tk.CENTER)
         
+        # 右クリックイベントバインディング
+        self.watchlist_tree.bind("<Button-3>", self.show_watchlist_context_menu)  # 右クリック
+        
         # スクロールバー（ウォッチリスト）
         watchlist_scrollbar = ttk.Scrollbar(watchlist_frame, orient=tk.VERTICAL, command=self.watchlist_tree.yview)
         self.watchlist_tree.configure(yscrollcommand=watchlist_scrollbar.set)
@@ -497,6 +667,9 @@ class MainWindow:
                 self.wishlist_tree.column(col, width=200, anchor="w")
             elif col == "added_date":
                 self.wishlist_tree.column(col, width=80, anchor="center")
+        
+        # 右クリックイベントバインディング
+        self.wishlist_tree.bind("<Button-3>", self.show_wishlist_context_menu)  # 右クリック
         
         # スクロールバー
         wishlist_scrollbar = ttk.Scrollbar(wishlist_frame, orient=tk.VERTICAL, command=self.wishlist_tree.yview)
@@ -1536,7 +1709,7 @@ PBR: 1.0 ✅ (設定: 4.0以下)
                 f"¥{stock_info.current_price:,.0f}",
                 f"¥{target_price}" if target_price else "未設定",
                 f"{stock_info.change_percent:+.2f}%",
-                f"{(stock_info.dividend_yield or 0) * 100:.1f}%",
+                f"{(stock_info.dividend_yield or 0):.1f}%",
                 f"{stock_info.pe_ratio:.1f}" if stock_info.pe_ratio else "N/A",
                 f"{stock_info.pb_ratio:.1f}" if stock_info.pb_ratio else "N/A",
                 status
@@ -1552,6 +1725,25 @@ PBR: 1.0 ✅ (設定: 4.0以下)
             self.watchlist_tree.tag_configure('condition_2', background='#fff3cd', foreground='#856404')
             self.watchlist_tree.tag_configure('condition_1', background='#f8d7da', foreground='#721c24')
             self.watchlist_tree.tag_configure('condition_0', background='#f1f3f4', foreground='#5f6368')
+            
+            # データベースに保存
+            target_price_float = None
+            if target_price:
+                try:
+                    target_price_float = float(target_price)
+                except:
+                    pass
+            
+            success = self.db.add_to_watchlist(
+                symbol=symbol,
+                name=name or stock_info.name,
+                strategy_name="default_strategy",
+                target_buy_price=target_price_float,
+                target_sell_price=None
+            )
+            
+            if not success:
+                messagebox.showwarning("警告", "データベースへの保存に失敗しました")
             
             # 入力フィールドをクリア
             self.watchlist_symbol_var.set("")
@@ -1573,6 +1765,17 @@ PBR: 1.0 ✅ (設定: 4.0以下)
             for item in self.watchlist_tree.get_children():
                 values = self.watchlist_tree.item(item)['values']
                 symbol = values[1]
+                
+                # 型変換による安全性確保
+                try:
+                    if symbol is None:
+                        continue
+                    symbol_str = str(symbol).strip()
+                    if not symbol_str or symbol_str.startswith('PORTFOLIO_'):
+                        continue
+                    symbol = symbol_str
+                except (TypeError, AttributeError):
+                    continue
                 
                 # 株価情報を取得
                 stock_info = data_source.get_stock_info(symbol)
@@ -1605,7 +1808,7 @@ PBR: 1.0 ✅ (設定: 4.0以下)
                         f"¥{stock_info.current_price:,.0f}",
                         values[4],  # 目標価格
                         f"{stock_info.change_percent:+.2f}%",
-                        f"{(stock_info.dividend_yield or 0) * 100:.1f}%",
+                        f"{(stock_info.dividend_yield or 0):.1f}%",
                         f"{stock_info.pe_ratio:.1f}" if stock_info.pe_ratio else "N/A",
                         f"{stock_info.pb_ratio:.1f}" if stock_info.pb_ratio else "N/A",
                         status
@@ -2194,7 +2397,7 @@ PBR: 1.0 ✅ (設定: 4.0以下)
                 f"¥{stock_info.current_price:,.0f}",
                 f"¥{target_price}" if target_price else "未設定",
                 price_diff_str,
-                f"{(stock_info.dividend_yield or 0) * 100:.1f}%",
+                f"{(stock_info.dividend_yield or 0):.1f}%",
                 f"{stock_info.pe_ratio:.1f}" if stock_info.pe_ratio else "N/A",
                 f"{stock_info.pb_ratio:.1f}" if stock_info.pb_ratio else "N/A",
                 memo,
@@ -2202,6 +2405,24 @@ PBR: 1.0 ✅ (設定: 4.0以下)
             )
             
             self.wishlist_tree.insert("", tk.END, values=values)
+            
+            # データベースに保存
+            target_price_float = None
+            if target_price:
+                try:
+                    target_price_float = float(target_price)
+                except:
+                    pass
+            
+            success = self.db.add_to_wishlist(
+                symbol=symbol,
+                name=name or stock_info.name,
+                target_price=target_price_float,
+                memo=memo
+            )
+            
+            if not success:
+                messagebox.showwarning("警告", "データベースへの保存に失敗しました")
             
             # 入力欄をクリア
             self.wishlist_symbol_var.set("")
@@ -2287,7 +2508,14 @@ PBR: 1.0 ✅ (設定: 4.0以下)
             
             for item in items:
                 values = list(self.wishlist_tree.item(item)['values'])
-                symbol = values[1]
+                try:
+                    if len(values) < 2 or values[1] is None:
+                        continue
+                    symbol = str(values[1]).strip()
+                    if not symbol:
+                        continue
+                except (TypeError, AttributeError, IndexError):
+                    continue
                 
                 # 株価情報を取得
                 stock_info = data_source.get_stock_info(symbol)
@@ -2312,7 +2540,7 @@ PBR: 1.0 ✅ (設定: 4.0以下)
                     values[0] = indicator
                     values[3] = f"¥{stock_info.current_price:,.0f}"
                     values[5] = price_diff_str
-                    values[6] = f"{(stock_info.dividend_yield or 0) * 100:.1f}%"
+                    values[6] = f"{(stock_info.dividend_yield or 0):.1f}%"
                     values[7] = f"{stock_info.pe_ratio:.1f}" if stock_info.pe_ratio else "N/A"
                     values[8] = f"{stock_info.pb_ratio:.1f}" if stock_info.pb_ratio else "N/A"
                     
@@ -2532,6 +2760,9 @@ PBR: 1.0 ✅ (設定: 4.0以下)
     def show_holdings_context_menu(self, event):
         """保有銘柄の右クリックコンテキストメニュー表示"""
         try:
+            # 既存のコンテキストメニューをクリーンアップ
+            self._cleanup_context_menu()
+            
             # クリックされた項目を特定
             item = self.holdings_tree.identify('item', event.x, event.y)
             if not item:
@@ -2545,7 +2776,13 @@ PBR: 1.0 ✅ (設定: 4.0以下)
             if not values or len(values) < 2:
                 return
             
-            symbol = values[1]  # 銘柄コードは2番目のカラム
+            # 型安全性を確保
+            try:
+                symbol = str(values[1]).strip()
+                if not symbol:
+                    return
+            except (TypeError, AttributeError):
+                return
             
             # 疑似シンボルの場合はメニューを表示しない
             if (symbol.startswith('PORTFOLIO_') or 
@@ -2554,39 +2791,261 @@ PBR: 1.0 ✅ (設定: 4.0以下)
                 symbol == 'TOTAL_PORTFOLIO'):
                 return
             
-            # コンテキストメニュー作成
-            context_menu = tk.Menu(self.root, tearoff=0)
+            # コンテキストメニュー作成（インスタンス変数として保存）
+            self._context_menu = tk.Menu(self.root, tearoff=0)
+            
+            # 安全なコマンド関数を作成
+            def make_command(action_symbol, action_type):
+                def command():
+                    try:
+                        if action_type == 'dividend_history':
+                            self.show_dividend_history_for_symbol(action_symbol)
+                        elif action_type == 'dividend_chart':
+                            self.show_dividend_chart_for_symbol(action_symbol)
+                        elif action_type == 'delete':
+                            self.delete_selected_holding(action_symbol)
+                        elif action_type == 'test_alert':
+                            self.test_alert_for_symbol(action_symbol)
+                    except Exception as e:
+                        messagebox.showerror("エラー", f"操作中にエラーが発生しました: {e}")
+                return command
             
             # メニュー項目追加
-            context_menu.add_command(
+            self._context_menu.add_command(
                 label=f"Show {symbol} Dividend History",
-                command=lambda: self.show_dividend_history_for_symbol(symbol)
+                command=make_command(symbol, 'dividend_history')
             )
-            context_menu.add_command(
+            self._context_menu.add_command(
                 label=f"Show {symbol} Dividend Chart", 
-                command=lambda: self.show_dividend_chart_for_symbol(symbol)
+                command=make_command(symbol, 'dividend_chart')
             )
-            context_menu.add_separator()
-            context_menu.add_command(
+            self._context_menu.add_separator()
+            self._context_menu.add_command(
                 label=f"Delete {symbol}",
-                command=lambda: self.delete_selected_holding(symbol)
+                command=make_command(symbol, 'delete')
             )
-            context_menu.add_command(
+            self._context_menu.add_command(
                 label="Delete All Holdings",
                 command=self.delete_all_holdings
             )
-            context_menu.add_separator()
-            context_menu.add_command(
+            self._context_menu.add_separator()
+            self._context_menu.add_command(
                 label=f"Test Alert for {symbol}",
-                command=lambda: self.test_alert_for_symbol(symbol)
+                command=make_command(symbol, 'test_alert')
             )
             
-            # メニュー表示
-            context_menu.post(event.x_root, event.y_root)
+            # メニュー表示（安全な位置決め付き）
+            self._safe_menu_post(self._context_menu, event.x_root, event.y_root)
             
         except Exception as e:
             self.update_status(f"コンテキストメニューエラー: {e}")
             messagebox.showerror("エラー", f"メニュー表示中にエラーが発生しました: {e}")
+
+    def show_wishlist_context_menu(self, event):
+        """欲しい銘柄の右クリックコンテキストメニュー表示"""
+        try:
+            # 既存のコンテキストメニューをクリーンアップ
+            self._cleanup_context_menu()
+            
+            # クリックされた項目を特定
+            item = self.wishlist_tree.identify('item', event.x, event.y)
+            if not item:
+                return
+            
+            # 項目を選択状態にする
+            self.wishlist_tree.selection_set(item)
+            
+            # 銘柄コードを取得
+            values = self.wishlist_tree.item(item, 'values')
+            if not values or len(values) < 2:
+                return
+            
+            # 型安全性を確保
+            try:
+                symbol = str(values[1]).strip()
+                if not symbol:
+                    return
+            except (TypeError, AttributeError):
+                return
+            
+            # 疑似シンボルの場合はメニューを表示しない
+            if (symbol.startswith('PORTFOLIO_') or 
+                symbol.startswith('FUND_') or
+                symbol == 'STOCK_PORTFOLIO' or
+                symbol == 'TOTAL_PORTFOLIO'):
+                return
+            
+            # コンテキストメニュー作成（インスタンス変数として保存）
+            self._context_menu = tk.Menu(self.root, tearoff=0)
+            
+            # 安全なコマンド関数を作成
+            def make_wishlist_command(action_symbol, action_type):
+                def command():
+                    try:
+                        if action_type == 'dividend_history':
+                            self.show_dividend_history_for_symbol(action_symbol)
+                        elif action_type == 'dividend_chart':
+                            self.show_dividend_chart_for_symbol(action_symbol)
+                        elif action_type == 'delete':
+                            self.delete_from_wishlist_by_symbol(action_symbol)
+                        elif action_type == 'test_alert':
+                            self.test_alert_for_symbol(action_symbol)
+                    except Exception as e:
+                        messagebox.showerror("エラー", f"操作中にエラーが発生しました: {e}")
+                return command
+            
+            # メニュー項目追加
+            self._context_menu.add_command(
+                label=f"📈 {symbol} の配当履歴表示",
+                command=make_wishlist_command(symbol, 'dividend_history')
+            )
+            self._context_menu.add_command(
+                label=f"📊 {symbol} の配当チャート生成", 
+                command=make_wishlist_command(symbol, 'dividend_chart')
+            )
+            self._context_menu.add_separator()
+            self._context_menu.add_command(
+                label=f"🗑️ {symbol} を削除",
+                command=make_wishlist_command(symbol, 'delete')
+            )
+            self._context_menu.add_separator()
+            self._context_menu.add_command(
+                label=f"🧪 {symbol} のアラートテスト",
+                command=make_wishlist_command(symbol, 'test_alert')
+            )
+            
+            # メニュー表示（安全な位置決め付き）
+            self._safe_menu_post(self._context_menu, event.x_root, event.y_root)
+            
+        except Exception as e:
+            self.update_status(f"欲しい銘柄メニューエラー: {e}")
+            messagebox.showerror("エラー", f"メニュー表示中にエラーが発生しました: {e}")
+    
+    def show_watchlist_context_menu(self, event):
+        """監視リストの右クリックコンテキストメニュー表示"""
+        try:
+            # 既存のコンテキストメニューをクリーンアップ
+            self._cleanup_context_menu()
+            
+            # クリックされた項目を特定
+            item = self.watchlist_tree.identify('item', event.x, event.y)
+            if not item:
+                return
+            
+            # 項目を選択状態にする
+            self.watchlist_tree.selection_set(item)
+            
+            # 銘柄コードを取得
+            values = self.watchlist_tree.item(item, 'values')
+            if not values or len(values) < 2:
+                return
+            
+            # 型安全性を確保
+            try:
+                symbol = str(values[1]).strip()
+                if not symbol:
+                    return
+            except (TypeError, AttributeError):
+                return
+            
+            # 疑似シンボルの場合はメニューを表示しない
+            if (symbol.startswith('PORTFOLIO_') or 
+                symbol.startswith('FUND_') or
+                symbol == 'STOCK_PORTFOLIO' or
+                symbol == 'TOTAL_PORTFOLIO'):
+                return
+            
+            # コンテキストメニュー作成（インスタンス変数として保存）
+            self._context_menu = tk.Menu(self.root, tearoff=0)
+            
+            # 安全なコマンド関数を作成
+            def make_watchlist_command(action_symbol, action_type):
+                def command():
+                    try:
+                        if action_type == 'dividend_history':
+                            self.show_dividend_history_for_symbol(action_symbol)
+                        elif action_type == 'dividend_chart':
+                            self.show_dividend_chart_for_symbol(action_symbol)
+                        elif action_type == 'delete':
+                            self.delete_from_watchlist_by_symbol(action_symbol)
+                        elif action_type == 'test_alert':
+                            self.test_alert_for_symbol(action_symbol)
+                    except Exception as e:
+                        messagebox.showerror("エラー", f"操作中にエラーが発生しました: {e}")
+                return command
+            
+            # メニュー項目追加
+            self._context_menu.add_command(
+                label=f"📈 {symbol} の配当履歴表示",
+                command=make_watchlist_command(symbol, 'dividend_history')
+            )
+            self._context_menu.add_command(
+                label=f"📊 {symbol} の配当チャート生成", 
+                command=make_watchlist_command(symbol, 'dividend_chart')
+            )
+            self._context_menu.add_separator()
+            self._context_menu.add_command(
+                label=f"🗑️ {symbol} を削除",
+                command=make_watchlist_command(symbol, 'delete')
+            )
+            self._context_menu.add_separator()
+            self._context_menu.add_command(
+                label=f"🧪 {symbol} のアラートテスト",
+                command=make_watchlist_command(symbol, 'test_alert')
+            )
+            
+            # メニュー表示（安全な位置決め付き）
+            self._safe_menu_post(self._context_menu, event.x_root, event.y_root)
+            
+        except Exception as e:
+            self.update_status(f"監視リストメニューエラー: {e}")
+            messagebox.showerror("エラー", f"メニュー表示中にエラーが発生しました: {e}")
+    
+    def delete_from_wishlist_by_symbol(self, symbol):
+        """欲しい銘柄から削除"""
+        try:
+            result = messagebox.askyesno("確認", f"銘柄 {symbol} を欲しい銘柄リストから削除しますか？")
+            if result:
+                # データベースから削除
+                success = self.db.delete_from_wishlist(symbol)
+                if success:
+                    # Treeviewから削除
+                    for item in self.wishlist_tree.get_children():
+                        values = self.wishlist_tree.item(item, 'values')
+                        if values and len(values) > 1 and values[1] == symbol:
+                            self.wishlist_tree.delete(item)
+                            break
+                    
+                    self.update_status(f"欲しい銘柄削除完了: {symbol}")
+                    messagebox.showinfo("完了", f"銘柄 {symbol} を欲しい銘柄リストから削除しました")
+                else:
+                    messagebox.showerror("エラー", "削除に失敗しました")
+        except Exception as e:
+            self.update_status(f"欲しい銘柄削除エラー: {e}")
+            messagebox.showerror("エラー", f"削除中にエラーが発生しました: {e}")
+    
+    def delete_from_watchlist_by_symbol(self, symbol):
+        """監視リストから削除"""
+        try:
+            result = messagebox.askyesno("確認", f"銘柄 {symbol} を監視リストから削除しますか？")
+            if result:
+                # データベースから削除
+                success = self.db.delete_from_watchlist(symbol)
+                if success:
+                    # Treeviewから削除
+                    for item in self.watchlist_tree.get_children():
+                        values = self.watchlist_tree.item(item, 'values')
+                        if values and len(values) > 1 and values[1] == symbol:
+                            self.watchlist_tree.delete(item)
+                            break
+                    
+                    self.update_status(f"監視リスト削除完了: {symbol}")
+                    messagebox.showinfo("完了", f"銘柄 {symbol} を監視リストから削除しました")
+                else:
+                    messagebox.showerror("エラー", "削除に失敗しました")
+        except Exception as e:
+            self.update_status(f"監視リスト削除エラー: {e}")
+            messagebox.showerror("エラー", f"削除中にエラーが発生しました: {e}")
 
     def show_dividend_history_for_symbol(self, symbol):
         """指定銘柄の配当履歴を配当履歴タブに表示"""
@@ -2709,7 +3168,15 @@ PBR: 1.0 ✅ (設定: 4.0以下)
                            f"時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             
             # アラート送信
-            self.alert_manager.send_alert(symbol, "test", test_message)
+            test_alert = Alert(
+                symbol=symbol,
+                alert_type="test",
+                message=test_message,
+                triggered_price=stock_info.current_price,
+                strategy_name="manual_test",
+                timestamp=datetime.now()
+            )
+            self.alert_manager.send_alert(test_alert)
             
             self.update_status(f"アラートテスト完了: {symbol}")
             messagebox.showinfo("完了", f"銘柄 {symbol} のテストアラートを送信しました")
@@ -2936,6 +3403,405 @@ PBR: 1.0 ✅ (設定: 4.0以下)
         except Exception as e:
             self.update_status("チャート作成エラー")
             messagebox.showerror("エラー", f"チャート作成中にエラーが発生しました: {e}")
+
+    def load_wishlist_data(self):
+        """データベースから欲しい銘柄データを読み込み"""
+        try:
+            wishlist_data = self.db.get_wishlist()
+            
+            # Treeviewをクリア
+            for item in self.wishlist_tree.get_children():
+                self.wishlist_tree.delete(item)
+            
+            # データを表示
+            for item in wishlist_data:
+                symbol = item['symbol']
+                name = item['name']
+                target_price = item.get('target_price')
+                memo = item.get('memo', '')
+                
+                # 株価情報を取得（簡単な表示のため、現在価格のみ）
+                try:
+                    if not hasattr(self, 'data_source') or self.data_source is None:
+                        from dotenv import load_dotenv
+                        import os
+                        load_dotenv()
+                        
+                        jquants_email = os.getenv('JQUANTS_EMAIL')
+                        jquants_password = os.getenv('JQUANTS_PASSWORD')
+                        refresh_token = os.getenv('JQUANTS_REFRESH_TOKEN')
+                        
+                        self.data_source = MultiDataSource(jquants_email, jquants_password, refresh_token)
+                    
+                    stock_info = self.data_source.get_stock_info(symbol)
+                    
+                    if stock_info:
+                        # 条件チェック
+                        conditions_met, condition_details, sell_signal = self.check_strategy_conditions(symbol, stock_info)
+                        indicator = self.get_condition_indicator(conditions_met, sell_signal)
+                        
+                        # 価格差計算
+                        if target_price:
+                            price_diff = stock_info.current_price - target_price
+                            price_diff_str = f"¥{price_diff:+,.0f}"
+                        else:
+                            price_diff_str = "N/A"
+                        
+                        values = (
+                            indicator,
+                            symbol,
+                            name,
+                            f"¥{stock_info.current_price:,.0f}",
+                            f"¥{target_price:.0f}" if target_price else "未設定",
+                            price_diff_str,
+                            f"{(stock_info.dividend_yield or 0):.1f}%",
+                            f"{stock_info.pe_ratio:.1f}" if stock_info.pe_ratio else "N/A",
+                            f"{stock_info.pb_ratio:.1f}" if stock_info.pb_ratio else "N/A",
+                            memo,
+                            item['created_at'][:10] if item.get('created_at') else ""
+                        )
+                        
+                        self.wishlist_tree.insert("", tk.END, values=values)
+                    else:
+                        # 株価データ取得失敗時のデフォルト表示
+                        values = (
+                            "❓ 不明",
+                            symbol,
+                            name,
+                            "取得失敗",
+                            f"¥{target_price:.0f}" if target_price else "未設定",
+                            "N/A",
+                            "N/A",
+                            "N/A",
+                            "N/A",
+                            memo,
+                            item['created_at'][:10] if item.get('created_at') else ""
+                        )
+                        
+                        self.wishlist_tree.insert("", tk.END, values=values)
+                        
+                except Exception as e:
+                    print(f"欲しい銘柄データ読み込みエラー ({symbol}): {e}")
+                    
+        except Exception as e:
+            print(f"欲しい銘柄データ読み込みエラー: {e}")
+
+    def load_watchlist_data(self):
+        """データベースから監視リストデータを読み込み"""
+        try:
+            watchlist_data = self.db.get_watchlist()
+            
+            # Treeviewをクリア
+            for item in self.watchlist_tree.get_children():
+                self.watchlist_tree.delete(item)
+            
+            # データを表示
+            for item in watchlist_data:
+                symbol = item['symbol']
+                name = item['name']
+                target_buy_price = item.get('target_buy_price')
+                
+                # 株価情報を取得
+                try:
+                    if not hasattr(self, 'data_source') or self.data_source is None:
+                        from dotenv import load_dotenv
+                        import os
+                        load_dotenv()
+                        
+                        jquants_email = os.getenv('JQUANTS_EMAIL')
+                        jquants_password = os.getenv('JQUANTS_PASSWORD')
+                        refresh_token = os.getenv('JQUANTS_REFRESH_TOKEN')
+                        
+                        self.data_source = MultiDataSource(jquants_email, jquants_password, refresh_token)
+                    
+                    stock_info = self.data_source.get_stock_info(symbol)
+                    
+                    if stock_info:
+                        # 条件チェック
+                        conditions_met, condition_details, sell_signal = self.check_strategy_conditions(symbol, stock_info)
+                        indicator = self.get_condition_indicator(conditions_met, sell_signal)
+                        
+                        # ステータス決定
+                        if target_buy_price:
+                            current = stock_info.current_price
+                            if current <= target_buy_price:
+                                status = "🎯 目標達成"
+                            else:
+                                diff_percent = ((target_buy_price - current) / current) * 100
+                                status = f"📈 {diff_percent:+.1f}%"
+                        else:
+                            status = "📊 監視中"
+                        
+                        values = (
+                            indicator,
+                            symbol,
+                            name,
+                            f"¥{stock_info.current_price:,.0f}",
+                            f"¥{target_buy_price:.0f}" if target_buy_price else "未設定",
+                            f"{stock_info.change_percent:+.2f}%" if stock_info.change_percent else "N/A",
+                            f"{(stock_info.dividend_yield or 0):.1f}%",
+                            f"{stock_info.pe_ratio:.1f}" if stock_info.pe_ratio else "N/A",
+                            f"{stock_info.pb_ratio:.1f}" if stock_info.pb_ratio else "N/A",
+                            status
+                        )
+                        
+                        # 条件マッチング数に応じた色分け
+                        tags = [f'condition_{conditions_met}']
+                        
+                        self.watchlist_tree.insert("", tk.END, values=values, tags=tags)
+                        
+                        # 色設定
+                        self.watchlist_tree.tag_configure('condition_3', background='#d4edda', foreground='#155724')
+                        self.watchlist_tree.tag_configure('condition_2', background='#fff3cd', foreground='#856404')
+                        self.watchlist_tree.tag_configure('condition_1', background='#f8d7da', foreground='#721c24')
+                        self.watchlist_tree.tag_configure('condition_0', background='#f1f3f4', foreground='#5f6368')
+                    else:
+                        # 株価データ取得失敗時のデフォルト表示
+                        values = (
+                            "❓ 不明",
+                            symbol,
+                            name,
+                            "取得失敗",
+                            f"¥{target_buy_price:.0f}" if target_buy_price else "未設定",
+                            "N/A",
+                            "N/A",
+                            "N/A",
+                            "N/A",
+                            "📊 監視中"
+                        )
+                        
+                        self.watchlist_tree.insert("", tk.END, values=values)
+                        
+                except Exception as e:
+                    print(f"監視リストデータ読み込みエラー ({symbol}): {e}")
+                    
+        except Exception as e:
+            print(f"監視リストデータ読み込みエラー: {e}")
+
+    def export_data(self):
+        """データエクスポート機能（プレースホルダー）"""
+        import tkinter.messagebox as messagebox
+        messagebox.showinfo("データエクスポート", "データエクスポート機能は現在開発中です。")
+
+    def show_settings(self):
+        """設定画面表示（プレースホルダー）"""
+        import tkinter.messagebox as messagebox
+        messagebox.showinfo("設定", "設定画面は現在開発中です。\n現在の設定は config/settings.json ファイルで変更できます。")
+
+    def test_alert_system(self):
+        """アラートシステムテスト"""
+        try:
+            self.alert_manager.test_notifications()
+        except Exception as e:
+            messagebox.showerror("エラー", f"アラートテストエラー: {e}")
+
+    def show_notification_settings(self):
+        """通知設定画面表示（プレースホルダー）"""
+        import tkinter.messagebox as messagebox
+        messagebox.showinfo("通知設定", "通知設定画面は現在開発中です。\n現在の設定は .env ファイルで変更できます。")
+
+    def show_strategy_settings(self):
+        """戦略設定画面表示（プレースホルダー）"""
+        import tkinter.messagebox as messagebox
+        messagebox.showinfo("戦略設定", "戦略設定画面は現在開発中です。\n現在の設定は config/strategies.json ファイルで変更できます。")
+
+    def cleanup_database(self):
+        """データベースクリーンアップ"""
+        try:
+            result = messagebox.askyesno("データベースクリーンアップ", 
+                "データベースの最適化を実行しますか？\n（古いデータの削除や断片化の解消を行います）")
+            if result:
+                # データベースのVACUUMコマンドを実行
+                import sqlite3
+                with sqlite3.connect(self.db.db_path) as conn:
+                    conn.execute("VACUUM")
+                    conn.commit()
+                messagebox.showinfo("完了", "データベースのクリーンアップが完了しました。")
+        except Exception as e:
+            messagebox.showerror("エラー", f"データベースクリーンアップエラー: {e}")
+
+    def clear_alert_history(self):
+        """アラート履歴クリア"""
+        try:
+            result = messagebox.askyesno("アラート履歴クリア", 
+                "すべてのアラート履歴を削除しますか？\n（この操作は取り消せません）")
+            if result:
+                success = self.db.clear_alerts()
+                if success:
+                    messagebox.showinfo("完了", "アラート履歴をクリアしました。")
+                    self.refresh_ui()
+                else:
+                    messagebox.showerror("エラー", "アラート履歴のクリアに失敗しました。")
+        except Exception as e:
+            messagebox.showerror("エラー", f"アラート履歴クリアエラー: {e}")
+
+    def show_dividend_analysis(self):
+        """配当分析画面表示"""
+        try:
+            holdings = self.db.get_all_holdings()
+            if not holdings:
+                messagebox.showinfo("配当分析", "保有銘柄がありません。\nまずCSVインポートで銘柄を追加してください。")
+                return
+            
+            # 配当分析ウィンドウの表示
+            analysis_window = tk.Toplevel(self.root)
+            analysis_window.title("配当分析")
+            analysis_window.geometry("600x400")
+            
+            label = tk.Label(analysis_window, 
+                text="配当分析機能\n\n個別銘柄の配当分析は、\nポートフォリオタブで銘柄を右クリックして\n「配当履歴表示」を選択してください。",
+                font=("Arial", 12), pady=20)
+            label.pack()
+            
+        except Exception as e:
+            messagebox.showerror("エラー", f"配当分析エラー: {e}")
+
+    def show_user_guide(self):
+        """使い方ガイド表示"""
+        guide_text = """
+🚀 日本株ウォッチドッグ - 使い方ガイド
+
+📋 基本操作:
+1. CSVインポート: SBI証券・楽天証券のCSVファイルをインポート
+2. 株価更新: 「株価更新」ボタンで最新価格を取得
+3. 監視設定: 監視タブで買い条件・売り条件を設定
+4. 配当分析: 銘柄を右クリック → 配当履歴表示
+
+🔧 設定ファイル:
+- .env: API認証情報（J Quants, Gmail, Discord）
+- config/settings.json: アプリケーション設定
+- config/strategies.json: 投資戦略設定
+
+📚 詳細ドキュメント:
+README.md ファイルをご参照ください。
+        """
+        messagebox.showinfo("使い方ガイド", guide_text)
+
+    def show_shortcuts(self):
+        """ショートカットキー表示"""
+        shortcuts_text = """
+⌨️ ショートカットキー
+
+📋 タブ切り替え:
+Ctrl+1: ポートフォリオタブ
+Ctrl+2: CSVインポートタブ
+Ctrl+3: 監視タブ
+Ctrl+4: 欲しい銘柄タブ
+
+🔄 操作:
+F5: 株価更新
+Ctrl+S: データ保存
+Ctrl+Q: アプリ終了
+
+🖱️ マウス操作:
+右クリック: コンテキストメニュー表示
+ダブルクリック: 詳細表示（銘柄による）
+        """
+        messagebox.showinfo("ショートカットキー", shortcuts_text)
+
+    def open_github(self):
+        """GitHub リポジトリを開く"""
+        import webbrowser
+        try:
+            webbrowser.open("https://github.com/inata169/miniTest01")
+        except Exception as e:
+            messagebox.showerror("エラー", f"ブラウザでGitHubを開けませんでした: {e}")
+
+    def show_feedback(self):
+        """フィードバック情報表示"""
+        feedback_text = """
+📧 フィードバック・お問い合わせ
+
+🐛 バグ報告:
+GitHub Issues をご利用ください
+https://github.com/inata169/miniTest01/issues
+
+💡 機能要求:
+GitHub Discussions でご提案ください
+https://github.com/inata169/miniTest01/discussions
+
+📚 質問・サポート:
+README.md の使い方ガイドを確認後、
+GitHub Issues でお気軽にお尋ねください
+
+🤝 貢献:
+CONTRIBUTING.md をご参照ください
+
+開発者: inata169
+共同開発者: Claude Code
+        """
+        messagebox.showinfo("フィードバック", feedback_text)
+
+    def _cleanup_context_menu(self):
+        """コンテキストメニューをクリーンアップ"""
+        if hasattr(self, '_context_menu') and self._context_menu:
+            try:
+                self._context_menu.unpost()
+                self._context_menu.destroy()
+            except:
+                pass
+            self._context_menu = None
+
+    def _safe_menu_post(self, menu, x, y):
+        """安全にメニューを表示（画面境界チェック付き）"""
+        try:
+            # 画面サイズを取得
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            
+            # メニューの概算サイズ
+            menu_width = 250
+            menu_height = 150
+            
+            # 画面境界をチェックして位置を調整
+            if x + menu_width > screen_width:
+                x = screen_width - menu_width - 10
+            if y + menu_height > screen_height:
+                y = screen_height - menu_height - 10
+            
+            # 最小位置制限
+            x = max(10, x)
+            y = max(10, y)
+            
+            # メニューを表示
+            menu.post(x, y)
+            menu.focus_set()
+            
+            # クリックでメニューを閉じるイベントをバインド
+            def close_menu(event=None):
+                self._cleanup_context_menu()
+            
+            self.root.bind('<Button-1>', close_menu, add='+')
+            self.root.bind('<Escape>', close_menu, add='+')
+            
+        except Exception as e:
+            print(f"メニュー表示エラー: {e}")
+            self._cleanup_context_menu()
+
+    def _on_global_click(self, event):
+        """グローバルクリックイベント（コンテキストメニューのクリーンアップ用）"""
+        # コンテキストメニューが表示されている場合のみクリーンアップ
+        if hasattr(self, '_context_menu') and self._context_menu:
+            # クリックされた位置がメニュー外の場合のみクリーンアップ
+            try:
+                # メニューのウィンドウが存在するかチェック
+                menu_window = self._context_menu.winfo_toplevel()
+                if menu_window and menu_window.winfo_exists():
+                    # メニュー内のクリックかチェック
+                    x, y = event.x_root, event.y_root
+                    menu_x = menu_window.winfo_rootx()
+                    menu_y = menu_window.winfo_rooty()
+                    menu_w = menu_window.winfo_width()
+                    menu_h = menu_window.winfo_height()
+                    
+                    # メニュー外のクリックの場合のみクリーンアップ
+                    if not (menu_x <= x <= menu_x + menu_w and menu_y <= y <= menu_y + menu_h):
+                        self._cleanup_context_menu()
+                else:
+                    self._cleanup_context_menu()
+            except:
+                # エラーが発生した場合は安全にクリーンアップ
+                self._cleanup_context_menu()
 
     def run(self):
         """アプリケーション実行"""

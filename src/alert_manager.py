@@ -38,7 +38,6 @@ class AlertManager:
             'desktop': self._send_desktop_notification,
             'email': self._send_email_notification,
             'console': self._send_console_notification,
-            'line': self._send_line_notification,
             'discord': self._send_discord_notification
         }
     
@@ -54,7 +53,6 @@ class AlertManager:
                     'email': {'enabled': False},
                     'desktop': {'enabled': True},
                     'console': {'enabled': True},
-                    'line': {'enabled': False},
                     'discord': {'enabled': False}
                 }
             }
@@ -79,15 +77,6 @@ class AlertManager:
         # コンソール通知
         if notifications_config.get('console', {}).get('enabled', True):
             self.notification_methods['console'](alert)
-        
-        # LINE通知
-        line_config = notifications_config.get('line', {})
-        if line_config.get('enabled', False):
-            threading.Thread(
-                target=self.notification_methods['line'], 
-                args=(alert,), 
-                daemon=True
-            ).start()
         
         # Discord通知
         discord_config = notifications_config.get('discord', {})
@@ -217,78 +206,9 @@ class AlertManager:
             print(f"コンソール通知エラー: {e}")
     
     def _send_line_notification(self, alert: Alert):
-        """LINE Notify通知を送信"""
-        try:
-            line_config = self.config['notifications']['line']
-            
-            # LINE Notifyトークン（環境変数を優先）
-            line_token = os.getenv('LINE_NOTIFY_TOKEN') or line_config.get('token', '')
-            
-            if not line_token:
-                print("LINE Notifyトークンが設定されていません。環境変数LINE_NOTIFY_TOKENを設定するか、設定ファイルにトークンを追加してください。")
-                return
-            
-            # メッセージ作成
-            alert_icons = {
-                'buy': '💰',
-                'sell_profit': '✅', 
-                'sell_loss': '⚠️',
-                'test': '🧪'
-            }
-            
-            icon = alert_icons.get(alert.alert_type, '📊')
-            
-            if alert.alert_type == 'buy':
-                alert_type_text = '買い推奨'
-            elif alert.alert_type == 'sell_profit':
-                alert_type_text = '利益確定'
-            elif alert.alert_type == 'sell_loss':
-                alert_type_text = '損切り'
-            elif alert.alert_type == 'test':
-                alert_type_text = 'テスト'
-            else:
-                alert_type_text = '株価アラート'
-            
-            # LINEメッセージ構築
-            formatted_alert_message = alert.message.replace('\\n', '\n')
-            message = f"""
-{icon} {alert_type_text}アラート
-
-銘柄: {alert.symbol}
-価格: ¥{alert.triggered_price:,.0f}
-戦略: {alert.strategy_name}
-時刻: {alert.timestamp.strftime('%Y-%m-%d %H:%M:%S')}
-
-{formatted_alert_message}
-
----
-日本株ウォッチドッグ
-""".strip()
-            
-            # LINE Notify API呼び出し
-            headers = {
-                'Authorization': f'Bearer {line_token}',
-                'Content-Type': 'application/x-www-form-urlencoded'
-            }
-            
-            data = {
-                'message': message
-            }
-            
-            response = requests.post(
-                'https://notify-api.line.me/api/notify',
-                headers=headers,
-                data=data,
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                print(f"LINE通知送信完了: {alert_type_text} - {alert.symbol}")
-            else:
-                print(f"LINE通知送信エラー: HTTP {response.status_code} - {response.text}")
-                
-        except Exception as e:
-            print(f"LINE通知送信エラー: {e}")
+        """LINE Notify通知を送信（サービス終了により無効）"""
+        print("⚠️ LINE Notify は2025年3月31日にサービス終了しました。")
+        print("通知機能としてはDiscordまたはGmail通知をご利用ください。")
     
     def _send_discord_notification(self, alert: Alert):
         """Discord Webhook通知を送信"""
@@ -515,35 +435,15 @@ class AlertManager:
         print("テスト完了")
     
     def test_line_notification(self):
-        """LINE通知専用テスト"""
-        line_config = self.config.get('notifications', {}).get('line', {})
-        line_token = os.getenv('LINE_NOTIFY_TOKEN') or line_config.get('token', '')
-        
-        if not line_token:
-            print("❌ LINE Notifyトークンが設定されていません")
-            print("設定方法:")
-            print("1. https://notify-bot.line.me/ja/ でトークンを発行")
-            print("2. 環境変数に設定: export LINE_NOTIFY_TOKEN='your_token_here'")
-            print("3. または config/settings.json の line.token に設定")
-            return False
-        
-        if not line_config.get('enabled', False):
-            print("❌ LINE通知が無効になっています")
-            print("config/settings.json で line.enabled を true に設定してください")
-            return False
-        
-        test_alert = Alert(
-            symbol="7203",
-            alert_type="test",
-            message="LINE通知テストが正常に動作しています\\nトヨタ自動車のサンプルアラートです",
-            triggered_price=2500,
-            strategy_name="test_strategy",
-            timestamp=datetime.now()
-        )
-        
-        print("LINE通知をテストしています...")
-        self._send_line_notification(test_alert)
-        return True
+        """LINE通知専用テスト（サービス終了により無効）"""
+        print("❌ LINE Notify は2025年3月31日にサービス終了しました")
+        print("📢 サービス終了のお知らせ:")
+        print("   LINE Notify サービスは2025年3月31日をもって終了いたします")
+        print("🔄 代替通知方法:")
+        print("   1. Discord通知: self.test_discord_notification()")
+        print("   2. Gmail通知: メール設定を.envファイルで設定")
+        print("   3. デスクトップ通知: 常時有効")
+        return False
     
     def test_discord_notification(self):
         """Discord通知専用テスト"""
