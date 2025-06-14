@@ -79,3 +79,14 @@ config/jquants_config.json
 # その他の秘密情報
 config/*_secrets.json
 config/*_private.json
+
+# テスト・デバッグファイル（個人データ含む可能性）
+charts/dividend_*.png
+debug_*.py
+*_analysis.py
+*_report.md
+*_investigation*.md
+temp/
+*.png
+*.jpg
+*.jpeg
