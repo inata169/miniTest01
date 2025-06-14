@@ -1,6 +1,6 @@
 # 日本株ウォッチドッグ (Japanese Stock Watchdog)
 
-![バージョン](https://img.shields.io/badge/version-1.4.0-blue.svg)
+![バージョン](https://img.shields.io/badge/version-1.4.4-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-green.svg)
 ![ライセンス](https://img.shields.io/badge/license-MIT-orange.svg)
 ![プラットフォーム](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
@@ -75,6 +75,24 @@
 4. **設定完了** → より高精度な日本株データを利用開始
 
 > **Note**: J Quants API未登録でもYahoo Finance単体で基本機能は利用可能ですが、日本株投資をメインにされる方はJ Quants API登録を強く推奨します。
+
+## 🆕 v1.4.4の新機能
+
+### 🪟 Windows環境完全対応
+- **ワンクリックインストール**: `setup_windows.bat` で依存関係自動解決
+- **ワンクリック起動**: `run_app.bat` でSSL設定込みの簡単起動
+- **コンパイルエラー回避**: プリビルドバイナリの段階的インストール
+- **緊急起動**: `install_minimal.bat` で最小限構成での起動対応
+
+### 🔧 GUI安定性向上
+- **スレッドエラー修正**: "main thread is not in main loop" エラーを完全解決
+- **ウィジェット存在チェック**: GUI要素の安全な更新処理
+- **メインループ保護**: アプリ終了時の例外処理強化
+
+### 📋 ユーザビリティ改善
+- **バッチファイル提供**: Windows初心者でも簡単セットアップ
+- **エラーハンドリング強化**: より親切なエラーメッセージ
+- **トラブルシューティング充実**: 実体験ベースの解決策追加
 
 ## 🆕 v1.4.0の新機能
 
@@ -188,18 +206,27 @@ cp .env.example .env
 nano .env  # またはcode .env
 ```
 
-#### 🪟 Windows 11 CMD 詳細手順（実体験ベース）
+#### 🪟 Windows 11 - ワンクリック簡単インストール（v1.4.4+）
 
-**前提条件の確認**:
+**🚀 超簡単セットアップ（推奨）**:
 ```cmd
-# PowerShell実行ポリシー変更
-powershell -Command "Set-ExecutionPolicy RemoteSigned -Scope CurrentUser"
+# 1. ZIPダウンロード or gitクローン
+git clone https://github.com/inata169/miniTest01.git
+cd miniTest01
 
-# Python 3.8+がインストールされていることを確認
-python --version
+# 2. ワンクリックセットアップ
+setup_windows.bat
+
+# 3. ワンクリック起動
+run_app.bat
 ```
 
-**ステップバイステップ手順**:
+**📋 バッチファイルの内容**:
+- **setup_windows.bat**: 依存関係の段階的インストール（コンパイルエラー回避）
+- **run_app.bat**: SSL設定 + アプリ起動
+- **install_minimal.bat**: 緊急時の最小限インストール
+
+**🔧 手動セットアップ（従来方式）**:
 ```cmd
 # 1. 作業ディレクトリに移動
 cd C:\Users\%USERNAME%\Documents
@@ -214,12 +241,13 @@ python -m venv venv_windows
 # 4. 仮想環境有効化
 venv_windows\Scripts\activate.bat
 
-# 5. pipアップグレード
-python -m pip install --upgrade pip
+# 5. setuptools・wheelアップグレード（重要）
+pip install --upgrade pip setuptools wheel
 
-# 6. 依存関係インストール
-pip install -r requirements.txt
-pip install matplotlib jquants-api-client python-dotenv
+# 6. 依存関係をバイナリで段階的インストール
+pip install --no-deps chardet python-dotenv requests beautifulsoup4 lxml
+pip install --only-binary=all numpy==1.24.3 matplotlib==3.7.2 pandas==2.0.3
+pip install yfinance jquants-api-client openpyxl email-validator
 
 # 7. 必要ディレクトリ作成
 mkdir data\csv_imports data\backups logs charts
@@ -251,18 +279,31 @@ sudo update-locale LANG=ja_JP.UTF-8
 
 **Windows環境でよくある問題**:
 ```cmd
-# SSL証明書エラーが発生する場合
+# 1. numpy/matplotlibコンパイルエラー（Visual Studio未インストール）
+# 解決策: プリビルドバイナリを使用
+pip install --only-binary=all numpy matplotlib pandas
+
+# 2. 依存関係競合エラー
+# 解決策: --no-deps オプションで段階的インストール
+pip install --no-deps chardet python-dotenv requests
+
+# 3. SSL証明書エラーが発生する場合
 set REQUESTS_CA_BUNDLE=
 set SSL_CERT_FILE=
 set CURL_CA_BUNDLE=
 
-# PowerShell実行エラーの場合
+# 4. PowerShell実行エラーの場合
 powershell -Command "Get-ExecutionPolicy"
 # RestrictedならRemoteSignedに変更
 powershell -Command "Set-ExecutionPolicy RemoteSigned -Scope CurrentUser"
 
-# matplotlib表示エラーの場合
-pip install --upgrade matplotlib pillow
+# 5. RuntimeError: main thread is not in main loop
+# 解決策: v1.4.4で修正済み、最新版を使用
+
+# 6. ModuleNotFoundError: No module named 'yfinance'
+# 解決策: 仮想環境が正しく有効化されているか確認
+venv_windows\Scripts\activate.bat
+pip install yfinance
 ```
 
 #### 📝 動作確認手順
