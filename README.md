@@ -133,6 +133,15 @@ setup_windows.bat
 run_app.bat
 ```
 
+### ⭐ Ubuntu/Linux超簡単セットアップ（5分で完了）
+```bash
+cd ~/Documents
+git clone https://github.com/inata169/miniTest01.git
+cd miniTest01
+chmod +x setup_ubuntu.sh && ./setup_ubuntu.sh
+./run_app.sh
+```
+
 ### 1. システム要件
 - **Python**: 3.8以上（Windows Store版推奨）
 - **OS**: Windows 10/11、macOS 10.14+、Ubuntu 18.04+
@@ -178,6 +187,28 @@ uv pip install matplotlib jquants-api-client python-dotenv
 # 5. 必要なディレクトリを作成
 mkdir -p data/csv_imports data/backups logs charts
 ```
+
+#### 🐧 Ubuntu/Linux 自動セットアップ（推奨）
+```bash
+# 1. リポジトリをクローン
+git clone https://github.com/inata169/miniTest01.git
+cd miniTest01
+
+# 2. 自動セットアップスクリプト実行
+chmod +x setup_ubuntu.sh && ./setup_ubuntu.sh
+
+# 3. アプリケーション起動
+./run_app.sh
+```
+
+**setup_ubuntu.shの機能**:
+- システムパッケージの自動更新・インストール
+- uv（高速パッケージマネージャ）のインストール
+- Python仮想環境の自動作成
+- 依存関係の一括インストール
+- 日本語フォントの自動設定
+- GUI環境の動作確認
+- 設定ファイルの自動準備
 
 #### 🖥️ Windows + WSL + Ubuntu 詳細手順（実体験ベース）
 
