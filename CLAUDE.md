@@ -19,6 +19,7 @@ source .venv/bin/activate                         # Activate (Linux/macOS)
 uv pip install -r requirements.txt
 uv pip install jquants-api-client                # J Quants API client
 uv pip install python-dotenv                     # Environment variable support
+uv pip install matplotlib                        # Dividend chart visualization (v1.4.1+)
 
 # Quick activation (convenience script)
 ./activate_env.sh
@@ -27,7 +28,7 @@ uv pip install python-dotenv                     # Environment variable support
 cp .env.example .env                              # Copy template
 nano .env                                         # Edit with actual credentials
 
-# Run GUI application (main entry point) - v1.2.1+
+# Run GUI application (main entry point) - v1.4.2+
 python3 src/main.py --gui
 
 # Alternative run script
@@ -47,16 +48,23 @@ python3 src/main.py --daemon
 # Interactive mode
 python3 src/main.py
 
-# Test alert notifications and new UI features
+# Test alert notifications and dividend analysis features
 # Click "アラートテスト" button in GUI
-# Test condition matching visualization in portfolio tabs
-# Use new "欲しい銘柄" tab for investment planning
+# Right-click on stock symbols for dividend analysis
+# Use dividend history tab for detailed analysis
 
 # Debug utilities
 python3 debug_fonts.py                           # Check available fonts
 python3 debug_stock_update.py                    # Debug stock price updates
 
-# Run tests
+# Run comprehensive test suite (v1.4.2+)
+python3 test_dividend_system.py                  # Dividend visualization tests
+python3 test_jquants_deep.py                     # J Quants API detailed tests
+python3 test_gui_components.py                   # GUI component verification
+python3 test_database_comprehensive.py           # Database operation tests
+python3 test_final_integration.py                # Final integration tests
+
+# Legacy test support
 python -m pytest tests/
 
 # Check version info

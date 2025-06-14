@@ -268,16 +268,17 @@ class MainWindow:
         def update_in_background():
             """バックグラウンドで指数を取得"""
             try:
-                self.root.after(0, lambda: self.indices_last_update_label.config(text="更新中..."))
-                
                 # 指数データを取得
                 indices = self.market_indices_manager.get_all_indices()
                 
                 # UIを更新（メインスレッドで実行）
                 def update_ui():
                     try:
+                        if hasattr(self, 'indices_last_update_label') and self.indices_last_update_label.winfo_exists():
+                            self.indices_last_update_label.config(text="更新中...")
+                        
                         for key, index_info in indices.items():
-                            if key in self.indices_labels:
+                            if key in self.indices_labels and self.indices_labels[key].winfo_exists():
                                 display_text = self.market_indices_manager.format_index_display(index_info)
                                 
                                 # 色分け
@@ -290,19 +291,30 @@ class MainWindow:
                                 self.indices_labels[key].config(text=display_text, fg=color)
                         
                         # 最終更新時刻を更新
-                        from datetime import datetime
-                        now = datetime.now().strftime("%H:%M:%S")
-                        self.indices_last_update_label.config(text=f"最終更新: {now}")
+                        if hasattr(self, 'indices_last_update_label') and self.indices_last_update_label.winfo_exists():
+                            from datetime import datetime
+                            now = datetime.now().strftime("%H:%M:%S")
+                            self.indices_last_update_label.config(text=f"最終更新: {now}")
                         
                     except Exception as e:
                         print(f"市場指数UI更新エラー: {e}")
-                        self.indices_last_update_label.config(text="更新エラー")
+                        if hasattr(self, 'indices_last_update_label') and self.indices_last_update_label.winfo_exists():
+                            self.indices_last_update_label.config(text="更新エラー")
                 
-                self.root.after(0, update_ui)
+                # メインスレッドかどうかチェックしてからUI更新を実行
+                try:
+                    self.root.after(0, update_ui)
+                except RuntimeError:
+                    # メインループが終了している場合は何もしない
+                    pass
                 
             except Exception as e:
                 print(f"市場指数取得エラー: {e}")
-                self.root.after(0, lambda: self.indices_last_update_label.config(text="取得エラー"))
+                try:
+                    self.root.after(0, lambda: self.indices_last_update_label.config(text="取得エラー") if hasattr(self, 'indices_last_update_label') and self.indices_last_update_label.winfo_exists() else None)
+                except RuntimeError:
+                    # メインループが終了している場合は何もしない
+                    pass
         
         # バックグラウンドスレッドで実行
         import threading
