@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import time
 from datetime import datetime, timedelta
 from logger import app_logger
+import numpy as np
 try:
     from jquantsapi import Client as JQuantsClient
     JQUANTS_AVAILABLE = True
@@ -27,6 +28,7 @@ class StockInfo:
     pe_ratio: Optional[float] = None
     pb_ratio: Optional[float] = None
     dividend_yield: Optional[float] = None
+    roe: Optional[float] = None
     last_updated: datetime = None
 
 
@@ -107,7 +109,8 @@ class YahooFinanceDataSource:
                 market_cap=info.get('marketCap'),
                 pe_ratio=info.get('trailingPE'),
                 pb_ratio=info.get('priceToBook'),
-                dividend_yield=info.get('dividendYield'),
+                dividend_yield=info.get('dividendYield') if info.get('dividendYield') else None,
+                roe=info.get('returnOnEquity') * 100 if info.get('returnOnEquity') else None,
                 last_updated=datetime.now()
             )
             
@@ -144,7 +147,8 @@ class YahooFinanceDataSource:
                             market_cap=info.get('marketCap'),
                             pe_ratio=info.get('trailingPE'),
                             pb_ratio=info.get('priceToBook'),
-                            dividend_yield=info.get('dividendYield'),
+                            dividend_yield=info.get('dividendYield') if info.get('dividendYield') else None,
+                            roe=info.get('returnOnEquity') * 100 if info.get('returnOnEquity') else None,
                             last_updated=datetime.now()
                         )
                         self.cache[formatted_symbol] = {'data': stock_info, 'timestamp': time.time()}
@@ -353,15 +357,271 @@ class JQuantsDataSource:
             return symbol + "0"
         return symbol
     
-    def get_stock_info(self, symbol: str) -> Optional[StockInfo]:
-        """J Quants APIから株価情報を取得"""
-        # 疑似シンボルの場合は即座にNoneを返す
+    def _is_japanese_stock(self, symbol: str) -> bool:
+        """日本株かどうかを判定"""
+        # 疑似シンボルは日本株ではない
         if (symbol.startswith('PORTFOLIO_') or 
             symbol.startswith('FUND_') or
             symbol == 'STOCK_PORTFOLIO' or
             symbol == 'TOTAL_PORTFOLIO' or
             len(symbol) > 10):
-            app_logger.info(f"J Quants API: 疑似シンボルをスキップ ({symbol})")
+            return False
+        
+        # 数字のみの場合は日本株
+        if symbol.isdigit() and len(symbol) == 4:
+            return True
+        
+        # 数字+アルファベット1文字の場合は日本株の優先株
+        if len(symbol) == 5 and symbol[:4].isdigit() and symbol[4].isalpha():
+            return True
+        
+        # アルファベットのみの場合は米国株
+        if symbol.isalpha():
+            return False
+        
+        # その他の場合は日本株として扱う
+        return True
+    
+    def _safe_float_conversion(self, value, field_name: str) -> Optional[float]:
+        """安全な数値変換"""
+        if value is None:
+            return None
+        try:
+            if isinstance(value, str):
+                if value.strip() == '' or value.strip() == '-':
+                    return None
+                # カンマを除去して数値変換
+                value = value.replace(',', '')
+            return float(value)
+        except (ValueError, TypeError):
+            app_logger.warning(f"数値変換エラー ({field_name}): {value}")
+            return None
+
+    def _get_financial_metrics(self, jquants_code: str, current_price: float) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
+        """J Quants APIから財務指標を取得（PER、PBR、ROE、配当利回り）"""
+        try:
+            # 財務データ取得
+            fins_response = self.client.get_fins_statements(code=jquants_code)
+            
+            pe_ratio = None
+            pb_ratio = None
+            roe = None
+            dividend_yield = None
+            
+            # DataFrameレスポンスの処理
+            if hasattr(fins_response, 'empty'):
+                if not fins_response.empty:
+                    latest_fin = fins_response.iloc[-1]
+                else:
+                    app_logger.warning(f"財務データが空: {jquants_code}")
+                    return None, None, None, None
+                
+                # 直接取得可能な指標
+                pe_ratio = self._safe_float_conversion(latest_fin.get('PriceEarningsRatio'), 'PER')
+                pb_ratio = self._safe_float_conversion(latest_fin.get('PriceBookValueRatio'), 'PBR') 
+                roe = self._safe_float_conversion(latest_fin.get('RateOfReturnOnEquity'), 'ROE')
+                
+                # 配当利回り（直接取得または計算）
+                dividend_yield_direct = self._safe_float_conversion(latest_fin.get('DividendYieldAnnual'), '配当利回り直接')
+                if dividend_yield_direct:
+                    dividend_yield = dividend_yield_direct
+                else:
+                    # 配当から計算
+                    annual_dividend = self._safe_float_conversion(latest_fin.get('ResultDividendPerShareAnnual'), '年間配当実績')
+                    if not annual_dividend:
+                        annual_dividend = self._safe_float_conversion(latest_fin.get('ForecastDividendPerShareAnnual'), '年間配当予想')
+                    
+                    if annual_dividend and annual_dividend > 0 and current_price > 0:
+                        dividend_yield = (annual_dividend / current_price) * 100
+                
+                # 直接取得できない場合の計算フォールバック
+                if not pe_ratio:
+                    eps = self._safe_float_conversion(latest_fin.get('EarningsPerShare'), 'EPS')
+                    if eps and eps > 0 and current_price > 0:
+                        pe_ratio = current_price / eps
+                
+                if not pb_ratio:
+                    bps = self._safe_float_conversion(latest_fin.get('BookValuePerShare'), 'BPS')
+                    if bps and bps > 0 and current_price > 0:
+                        pb_ratio = current_price / bps
+                
+                if not roe:
+                    # ROE = 純利益 / 自己資本 * 100
+                    net_income = self._safe_float_conversion(latest_fin.get('NetIncome'), '純利益')
+                    equity = self._safe_float_conversion(latest_fin.get('Equity'), '自己資本')
+                    if net_income and equity and equity > 0:
+                        roe = (net_income / equity) * 100
+                        
+            elif isinstance(fins_response, dict) and 'statements' in fins_response:
+                statements = fins_response['statements']
+                if statements:
+                    latest_fin = statements[-1]
+                    
+                    # 同様の処理をdict形式でも実行
+                    pe_ratio = self._safe_float_conversion(latest_fin.get('PriceEarningsRatio'), 'PER')
+                    pb_ratio = self._safe_float_conversion(latest_fin.get('PriceBookValueRatio'), 'PBR')
+                    roe = self._safe_float_conversion(latest_fin.get('RateOfReturnOnEquity'), 'ROE')
+                    
+                    # 配当利回り
+                    dividend_yield_direct = self._safe_float_conversion(latest_fin.get('DividendYieldAnnual'), '配当利回り直接')
+                    if dividend_yield_direct:
+                        dividend_yield = dividend_yield_direct
+                    else:
+                        annual_dividend = self._safe_float_conversion(latest_fin.get('ResultDividendPerShareAnnual'), '年間配当実績')
+                        if not annual_dividend:
+                            annual_dividend = self._safe_float_conversion(latest_fin.get('ForecastDividendPerShareAnnual'), '年間配当予想')
+                        
+                        if annual_dividend and annual_dividend > 0 and current_price > 0:
+                            dividend_yield = (annual_dividend / current_price) * 100
+            
+            app_logger.info(f"財務データ取得: {jquants_code} PER={pe_ratio}, PBR={pb_ratio}, ROE={roe}%, 配当利回り={dividend_yield}%")
+            return pe_ratio, pb_ratio, roe, dividend_yield
+            
+        except Exception as e:
+            app_logger.warning(f"財務データ取得エラー ({jquants_code}): {e}")
+            return None, None, None, None
+
+    def get_dividend_history(self, symbol: str, years: int = 5) -> List[Dict]:
+        """過去の配当履歴を取得"""
+        if not self._is_japanese_stock(symbol):
+            return []
+            
+        if not self.client:
+            app_logger.warning("J Quants API未認証のため配当履歴取得不可")
+            return []
+        
+        try:
+            jquants_code = self._format_jquants_symbol(symbol)
+            
+            # 財務データ取得（複数年分）
+            fins_response = self.client.get_fins_statements(code=jquants_code)
+            
+            dividend_history = []
+            
+            # DataFrameレスポンスの処理
+            if hasattr(fins_response, 'empty'):
+                if fins_response.empty:
+                    app_logger.warning(f"配当履歴データが空: {jquants_code}")
+                    return []
+                    
+                # 最新から指定年数分のデータを取得
+                try:
+                    # カラム名を確認して適切な日付カラムを使用
+                    date_column = None
+                    for col in ['Date', 'DisclosedDate', 'AnnouncementDate', 'ReportDate']:
+                        if col in fins_response.columns:
+                            date_column = col
+                            break
+                    
+                    if date_column:
+                        df = fins_response.sort_values(date_column, ascending=False)
+                        recent_data = df.head(years * 4)  # 四半期データ想定で年数×4
+                    else:
+                        available_cols = list(fins_response.columns)
+                        app_logger.warning(f"日付カラムが見つかりません ({jquants_code})")
+                        app_logger.info(f"利用可能カラム: {available_cols[:10]}...")  # 最初の10個のみ表示
+                        # 日付ソートなしで最新データを使用
+                        recent_data = fins_response.tail(years * 4)
+                        
+                except Exception as e:
+                    app_logger.error(f"DataFrame処理エラー ({jquants_code}): {e}")
+                    return []
+                
+                # 年度別に配当データを集計
+                yearly_dividends = {}
+                for _, row in recent_data.iterrows():
+                    try:
+                        # 複数の日付カラムを試行
+                        date_value = None
+                        for col in [date_column, 'Date', 'DisclosedDate', 'AnnouncementDate', 'ReportDate']:
+                            if col and col in row and pd.notna(row[col]):
+                                date_value = row[col]
+                                break
+                        
+                        if date_value is None:
+                            continue
+                            
+                        # 日付から年度を抽出
+                        if isinstance(date_value, pd.Timestamp):
+                            year = date_value.year
+                            date_str = date_value.strftime('%Y-%m-%d')
+                        else:
+                            date_str = str(date_value)
+                            if len(date_str) >= 4:
+                                year = int(date_str[:4])
+                            else:
+                                continue
+                        
+                        annual_dividend = self._safe_float_conversion(row.get('ResultDividendPerShareAnnual'), '年間配当')
+                        
+                        if annual_dividend and annual_dividend > 0:
+                            if year not in yearly_dividends or yearly_dividends[year]['dividend'] < annual_dividend:
+                                yearly_dividends[year] = {
+                                    'year': year,
+                                    'dividend': annual_dividend,
+                                    'date': date_str
+                                }
+                    except (ValueError, TypeError) as e:
+                        app_logger.debug(f"行処理エラー ({jquants_code}): {e}")
+                        continue
+                
+                # リストに変換してソート
+                dividend_history = sorted(yearly_dividends.values(), key=lambda x: x['year'], reverse=True)
+                
+            elif isinstance(fins_response, dict) and 'statements' in fins_response:
+                statements = fins_response['statements']
+                yearly_dividends = {}
+                
+                for statement in statements[-years*4:]:  # 最近のデータのみ
+                    try:
+                        # 複数の日付フィールドを試行
+                        date_value = None
+                        for date_field in ['Date', 'DisclosedDate', 'AnnouncementDate', 'ReportDate']:
+                            if date_field in statement and statement[date_field]:
+                                date_value = statement[date_field]
+                                break
+                        
+                        if date_value is None:
+                            continue
+                        
+                        # 日付から年度を抽出
+                        if isinstance(date_value, (pd.Timestamp, pd.Timedelta)):
+                            year = date_value.year
+                            date_str = date_value.strftime('%Y-%m-%d')
+                        else:
+                            date_str = str(date_value)
+                            if len(date_str) >= 4:
+                                year = int(date_str[:4])
+                            else:
+                                continue
+                        
+                        annual_dividend = self._safe_float_conversion(statement.get('ResultDividendPerShareAnnual'), '年間配当')
+                        
+                        if annual_dividend and annual_dividend > 0:
+                            if year not in yearly_dividends or yearly_dividends[year]['dividend'] < annual_dividend:
+                                yearly_dividends[year] = {
+                                    'year': year,
+                                    'dividend': annual_dividend,
+                                    'date': date_str
+                                }
+                    except (ValueError, TypeError) as e:
+                        app_logger.debug(f"statement処理エラー: {e}")
+                        continue
+                
+                dividend_history = sorted(yearly_dividends.values(), key=lambda x: x['year'], reverse=True)
+            
+            app_logger.info(f"配当履歴取得: {symbol} - {len(dividend_history)}年分")
+            return dividend_history
+            
+        except Exception as e:
+            app_logger.error(f"配当履歴取得エラー ({symbol}): {e}")
+            return []
+
+    def get_stock_info(self, symbol: str) -> Optional[StockInfo]:
+        """J Quants APIから株価情報を取得"""
+        # 日本株以外はスキップ
+        if not self._is_japanese_stock(symbol):
+            app_logger.info(f"J Quants API: 日本株以外をスキップ ({symbol})")
             return None
             
         if not self.client:
@@ -412,6 +672,9 @@ class JQuantsDataSource:
                 if listed_info and len(listed_info) > 0:
                     company_name = listed_info[0].get('CompanyName', symbol)
             
+            # 財務データを取得
+            pe_ratio, pb_ratio, roe, dividend_yield = self._get_financial_metrics(jquants_code, float(latest_quote.get('Close', 0)))
+            
             # StockInfo作成
             current_price = latest_quote.get('Close', 0)
             previous_close = previous_quote.get('Close', current_price)
@@ -425,9 +688,10 @@ class JQuantsDataSource:
                 change_percent=change_percent,
                 volume=int(latest_quote.get('Volume', 0)),
                 market_cap=None,  # J Quants APIから取得可能だが実装省略
-                pe_ratio=None,
-                pb_ratio=None,
-                dividend_yield=None,
+                pe_ratio=pe_ratio,
+                pb_ratio=pb_ratio,
+                dividend_yield=dividend_yield,
+                roe=roe,
                 last_updated=datetime.now()
             )
             
@@ -455,6 +719,7 @@ class JQuantsDataSource:
         except Exception as e:
             app_logger.error(f"J Quants API無料モードエラー ({symbol}): {e}")
             return None
+    
     
     def get_multiple_stocks(self, symbols: List[str]) -> Dict[str, StockInfo]:
         """複数銘柄の一括取得"""
@@ -519,20 +784,131 @@ class MultiDataSource:
         self.primary_source = 0  # 最初に成功したソースを主力に
         
     def get_stock_info(self, symbol: str) -> Optional[StockInfo]:
-        """複数ソースから株価情報を取得（フォールバック付き）"""
+        """複数ソースから株価情報を取得（ハイブリッド取得対応）"""
+        primary_info = None
+        fallback_info = None
+        
+        # 日本株の場合はJ Quants APIを優先、米国株はYahoo Financeを優先
+        is_japanese = self._is_japanese_stock(symbol)
+        
         for i, source in enumerate(self.sources):
             try:
                 stock_info = source.get_stock_info(symbol)
                 if stock_info:
-                    if i != self.primary_source:
-                        app_logger.info(f"フォールバック使用: {source.__class__.__name__} for {symbol}")
-                    return stock_info
+                    if isinstance(source, JQuantsDataSource) and is_japanese:
+                        primary_info = stock_info
+                        app_logger.info(f"J Quants API取得成功: {symbol}")
+                        break
+                    elif isinstance(source, YahooFinanceDataSource):
+                        fallback_info = stock_info
+                        if not is_japanese:
+                            app_logger.info(f"Yahoo Finance取得成功（米国株）: {symbol}")
+                            return stock_info
+                            
             except Exception as e:
                 app_logger.warning(f"データソース {source.__class__.__name__} 失敗 ({symbol}): {e}")
                 continue
         
+        # 日本株でJ Quants APIから基本データを取得した場合、不足している財務データをYahoo Financeで補完
+        if primary_info and is_japanese:
+            if (primary_info.pe_ratio is None or 
+                primary_info.pb_ratio is None or 
+                primary_info.dividend_yield is None):
+                
+                app_logger.info(f"財務データ補完開始: {symbol}")
+                primary_info = self._supplement_financial_data(primary_info, fallback_info)
+            
+            return primary_info
+        
+        # フォールバックデータがある場合はそれを返す
+        if fallback_info:
+            app_logger.info(f"フォールバック使用: {symbol}")
+            return fallback_info
+        
         app_logger.error(f"全データソース失敗: {symbol}")
         return None
+    
+    def _is_japanese_stock(self, symbol: str) -> bool:
+        """日本株かどうかを判定"""
+        # 疑似シンボルは日本株ではない
+        if (symbol.startswith('PORTFOLIO_') or 
+            symbol.startswith('FUND_') or
+            symbol == 'STOCK_PORTFOLIO' or
+            symbol == 'TOTAL_PORTFOLIO'):
+            return False
+        
+        # 数字のみの場合は日本株
+        if symbol.isdigit() and len(symbol) == 4:
+            return True
+        
+        # 数字+アルファベット1文字の場合は日本株の優先株
+        if len(symbol) == 5 and symbol[:4].isdigit() and symbol[4].isalpha():
+            return True
+        
+        # アルファベットのみの場合は米国株
+        if symbol.isalpha():
+            return False
+        
+        return True
+    
+    def _supplement_financial_data(self, primary_info: StockInfo, fallback_info: Optional[StockInfo]) -> StockInfo:
+        """不足している財務データをフォールバックデータで補完"""
+        if not fallback_info:
+            return primary_info
+        
+        # 不足データを補完
+        if primary_info.pe_ratio is None and fallback_info.pe_ratio is not None:
+            primary_info.pe_ratio = fallback_info.pe_ratio
+            app_logger.info(f"PER補完: {primary_info.symbol} = {primary_info.pe_ratio}")
+        
+        if primary_info.pb_ratio is None and fallback_info.pb_ratio is not None:
+            primary_info.pb_ratio = fallback_info.pb_ratio
+            app_logger.info(f"PBR補完: {primary_info.symbol} = {primary_info.pb_ratio}")
+        
+        if primary_info.dividend_yield is None and fallback_info.dividend_yield is not None:
+            primary_info.dividend_yield = fallback_info.dividend_yield
+            app_logger.info(f"配当利回り補完: {primary_info.symbol} = {primary_info.dividend_yield}%")
+        
+        return primary_info
+    
+    def get_dividend_history(self, symbol: str, years: int = 5) -> List[Dict]:
+        """配当履歴を取得（J Quants API優先）"""
+        is_japanese = self._is_japanese_stock(symbol)
+        
+        # 日本株の場合はJ Quants APIを試行
+        if is_japanese and JQUANTS_AVAILABLE:
+            for source in self.sources:
+                if isinstance(source, JQuantsDataSource):
+                    try:
+                        dividend_history = source.get_dividend_history(symbol, years)
+                        if dividend_history:
+                            app_logger.info(f"J Quants API配当履歴取得成功: {symbol}")
+                            return dividend_history
+                    except Exception as e:
+                        app_logger.warning(f"J Quants API配当履歴取得失敗 ({symbol}): {e}")
+        
+        # フォールバック：Yahoo Financeで配当履歴を取得
+        try:
+            yahoo_source = None
+            for source in self.sources:
+                if isinstance(source, YahooFinanceDataSource):
+                    yahoo_source = source
+                    break
+            
+            if yahoo_source:
+                dividend_info = yahoo_source.get_dividend_info(symbol)
+                if dividend_info and dividend_info.get('annual_dividend', 0) > 0:
+                    # Yahoo Financeからは単年データのみ取得可能
+                    return [{
+                        'year': datetime.now().year,
+                        'dividend': dividend_info['annual_dividend'],
+                        'date': str(dividend_info.get('last_dividend_date', ''))
+                    }]
+        except Exception as e:
+            app_logger.warning(f"Yahoo Finance配当履歴取得失敗 ({symbol}): {e}")
+        
+        app_logger.warning(f"配当履歴取得失敗: {symbol}")
+        return []
     
     def get_multiple_stocks(self, symbols: List[str]) -> Dict[str, StockInfo]:
         """複数銘柄の一括取得"""

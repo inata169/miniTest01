@@ -11,10 +11,11 @@ import platform
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from csv_parser import CSVParser
-from data_sources import YahooFinanceDataSource
+from data_sources import YahooFinanceDataSource, MultiDataSource
 from database import DatabaseManager
 from alert_manager import AlertManager
 from version import get_version_info
+from dividend_visualizer import DividendVisualizer
 
 
 class ToolTip:
@@ -110,6 +111,7 @@ class MainWindow:
         
         # データソースは遅延初期化
         self.data_source = None
+        self.dividend_visualizer = DividendVisualizer()
         
         # GUI先行表示
         self.setup_ui()
@@ -231,6 +233,9 @@ class MainWindow:
         
         # 欲しい銘柄タブ
         self.create_wishlist_tab()
+        
+        # 配当履歴タブ
+        self.create_dividend_history_tab()
     
     def create_holdings_tab(self):
         """保有銘柄タブ作成"""
@@ -282,6 +287,9 @@ class MainWindow:
         self.holdings_tooltip = ToolTip(self.holdings_tree, "")
         self.holdings_tree.bind("<Motion>", self.on_holdings_motion)
         self.holdings_tree.bind("<Leave>", self.on_holdings_leave)
+        
+        # 右クリックコンテキストメニュー
+        self.holdings_tree.bind("<Button-3>", self.show_holdings_context_menu)  # 右クリック
         
         # 列ヘッダー設定
         headers = {
@@ -505,6 +513,81 @@ class MainWindow:
         ttk.Button(wishlist_button_frame, text="選択削除", command=self.remove_from_wishlist_tab).pack(side=tk.LEFT, padx=5)
         ttk.Button(wishlist_button_frame, text="全て削除", command=self.clear_wishlist_tab).pack(side=tk.LEFT, padx=5)
         ttk.Button(wishlist_button_frame, text="監視リストへ移動", command=self.move_to_watchlist_tab).pack(side=tk.LEFT, padx=5)
+    
+    def create_dividend_history_tab(self):
+        """配当履歴タブ作成"""
+        dividend_tab_frame = ttk.Frame(self.portfolio_notebook)
+        self.portfolio_notebook.add(dividend_tab_frame, text="配当履歴")
+        
+        # 上部：銘柄選択とコントロール
+        control_frame = ttk.Frame(dividend_tab_frame)
+        control_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(control_frame, text="銘柄選択:", font=self.japanese_font).pack(side=tk.LEFT, padx=5)
+        
+        self.dividend_symbol_var = tk.StringVar()
+        symbol_entry = ttk.Entry(control_frame, textvariable=self.dividend_symbol_var, width=10)
+        symbol_entry.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(control_frame, text="履歴取得", command=self.load_dividend_history).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="チャート表示", command=self.show_dividend_chart).pack(side=tk.LEFT, padx=5)
+        
+        # 年数選択
+        ttk.Label(control_frame, text="期間:", font=self.japanese_font).pack(side=tk.LEFT, padx=(20, 5))
+        self.dividend_years_var = tk.StringVar(value="5")
+        years_combo = ttk.Combobox(control_frame, textvariable=self.dividend_years_var, 
+                                  values=["3", "5", "10"], width=5, state="readonly")
+        years_combo.pack(side=tk.LEFT, padx=5)
+        
+        # 中央：配当履歴テーブル
+        history_frame = ttk.LabelFrame(dividend_tab_frame, text="配当履歴", padding=5)
+        history_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # 配当履歴Treeview
+        dividend_columns = ("year", "dividend", "growth_rate", "yield_estimate")
+        self.dividend_tree = ttk.Treeview(history_frame, columns=dividend_columns, show="headings", height=12)
+        
+        # ヘッダー設定
+        dividend_headers = {
+            "year": "年度",
+            "dividend": "配当金 (円)",
+            "growth_rate": "成長率 (%)",
+            "yield_estimate": "利回り推定 (%)"
+        }
+        
+        for col, header in dividend_headers.items():
+            self.dividend_tree.heading(col, text=header)
+            if col == "year":
+                self.dividend_tree.column(col, width=80, anchor=tk.CENTER)
+            elif col == "dividend":
+                self.dividend_tree.column(col, width=120, anchor=tk.E)
+            else:
+                self.dividend_tree.column(col, width=100, anchor=tk.E)
+        
+        # スクロールバー
+        dividend_scrollbar = ttk.Scrollbar(history_frame, orient=tk.VERTICAL, command=self.dividend_tree.yview)
+        self.dividend_tree.configure(yscrollcommand=dividend_scrollbar.set)
+        
+        self.dividend_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        dividend_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 下部：サマリー情報
+        summary_frame = ttk.LabelFrame(dividend_tab_frame, text="配当分析サマリー", padding=10)
+        summary_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # サマリーラベル
+        self.dividend_summary_labels = {}
+        summary_info = [
+            ("avg_growth", "平均成長率"),
+            ("trend_analysis", "トレンド分析"),
+            ("investment_score", "投資評価"),
+            ("next_prediction", "来年予想")
+        ]
+        
+        for i, (key, label) in enumerate(summary_info):
+            ttk.Label(summary_frame, text=f"{label}:", font=self.japanese_font).grid(row=0, column=i*2, sticky=tk.W, padx=5)
+            self.dividend_summary_labels[key] = ttk.Label(summary_frame, text="-", font=self.japanese_font_bold)
+            self.dividend_summary_labels[key].grid(row=0, column=i*2+1, sticky=tk.W, padx=10)
     
     def create_import_tab(self):
         """CSVインポートタブ作成"""
@@ -2445,6 +2528,414 @@ PBR: 1.0 ✅ (設定: 4.0以下)
             self.holdings_tooltip.update_text(f"⚠️ {symbol}\\nエラー: {str(e)[:50]}")
             if not self.holdings_tooltip.tooltip_window:
                 self.holdings_tooltip.show_tooltip(event)
+
+    def show_holdings_context_menu(self, event):
+        """保有銘柄の右クリックコンテキストメニュー表示"""
+        try:
+            # クリックされた項目を特定
+            item = self.holdings_tree.identify('item', event.x, event.y)
+            if not item:
+                return
+            
+            # 項目を選択状態にする
+            self.holdings_tree.selection_set(item)
+            
+            # 銘柄コードを取得
+            values = self.holdings_tree.item(item, 'values')
+            if not values or len(values) < 2:
+                return
+            
+            symbol = values[1]  # 銘柄コードは2番目のカラム
+            
+            # 疑似シンボルの場合はメニューを表示しない
+            if (symbol.startswith('PORTFOLIO_') or 
+                symbol.startswith('FUND_') or
+                symbol == 'STOCK_PORTFOLIO' or
+                symbol == 'TOTAL_PORTFOLIO'):
+                return
+            
+            # コンテキストメニュー作成
+            context_menu = tk.Menu(self.root, tearoff=0)
+            
+            # メニュー項目追加
+            context_menu.add_command(
+                label=f"Show {symbol} Dividend History",
+                command=lambda: self.show_dividend_history_for_symbol(symbol)
+            )
+            context_menu.add_command(
+                label=f"Show {symbol} Dividend Chart", 
+                command=lambda: self.show_dividend_chart_for_symbol(symbol)
+            )
+            context_menu.add_separator()
+            context_menu.add_command(
+                label=f"Delete {symbol}",
+                command=lambda: self.delete_selected_holding(symbol)
+            )
+            context_menu.add_command(
+                label="Delete All Holdings",
+                command=self.delete_all_holdings
+            )
+            context_menu.add_separator()
+            context_menu.add_command(
+                label=f"Test Alert for {symbol}",
+                command=lambda: self.test_alert_for_symbol(symbol)
+            )
+            
+            # メニュー表示
+            context_menu.post(event.x_root, event.y_root)
+            
+        except Exception as e:
+            self.update_status(f"コンテキストメニューエラー: {e}")
+            messagebox.showerror("エラー", f"メニュー表示中にエラーが発生しました: {e}")
+
+    def show_dividend_history_for_symbol(self, symbol):
+        """指定銘柄の配当履歴を配当履歴タブに表示"""
+        try:
+            # 配当履歴タブに移動
+            self.portfolio_notebook.select(3)  # 配当履歴タブ（0:保有, 1:ウォッチ, 2:欲しい, 3:配当履歴）
+            
+            # 銘柄コードを設定
+            self.dividend_symbol_var.set(symbol)
+            
+            # 履歴取得を実行
+            self.load_dividend_history()
+            
+        except Exception as e:
+            self.update_status(f"配当履歴表示エラー: {e}")
+            messagebox.showerror("エラー", f"配当履歴表示中にエラーが発生しました: {e}")
+
+    def show_dividend_chart_for_symbol(self, symbol):
+        """指定銘柄の配当グラフを表示"""
+        try:
+            # 配当履歴タブに移動
+            self.portfolio_notebook.select(3)  # 配当履歴タブ
+            
+            # 銘柄コードを設定
+            self.dividend_symbol_var.set(symbol)
+            
+            # グラフ表示を実行
+            self.show_dividend_chart()
+            
+        except Exception as e:
+            self.update_status(f"配当グラフ表示エラー: {e}")
+            messagebox.showerror("エラー", f"配当グラフ表示中にエラーが発生しました: {e}")
+
+    def delete_selected_holding(self, symbol):
+        """指定銘柄を削除"""
+        try:
+            result = messagebox.askyesno("確認", f"銘柄 {symbol} を削除しますか？")
+            if not result:
+                return
+            
+            # データベースから削除
+            self.db.delete_holding_by_symbol(symbol)
+            
+            # ポートフォリオ表示を更新
+            self.load_portfolio_data()
+            
+            self.update_status(f"銘柄削除完了: {symbol}")
+            messagebox.showinfo("完了", f"銘柄 {symbol} を削除しました")
+            
+        except Exception as e:
+            self.update_status(f"銘柄削除エラー: {e}")
+            messagebox.showerror("エラー", f"銘柄削除中にエラーが発生しました: {e}")
+
+    def delete_all_holdings(self):
+        """全銘柄削除"""
+        try:
+            result = messagebox.askyesno("確認", "全ての保有銘柄を削除しますか？\n\nこの操作は元に戻せません。")
+            if not result:
+                return
+            
+            # 二重確認
+            result2 = messagebox.askyesno("最終確認", "本当に全ての保有銘柄を削除しますか？")
+            if not result2:
+                return
+            
+            # データベースから全削除
+            holdings = self.db.get_all_holdings()
+            count = len(holdings)
+            
+            for holding in holdings:
+                self.db.delete_holding_by_symbol(holding['symbol'])
+            
+            # ポートフォリオ表示を更新
+            self.load_portfolio_data()
+            
+            self.update_status(f"全銘柄削除完了: {count}件")
+            messagebox.showinfo("完了", f"{count}件の銘柄を削除しました")
+            
+        except Exception as e:
+            self.update_status(f"全銘柄削除エラー: {e}")
+            messagebox.showerror("エラー", f"全銘柄削除中にエラーが発生しました: {e}")
+
+    def test_alert_for_symbol(self, symbol):
+        """指定銘柄のアラートテスト"""
+        try:
+            self.update_status(f"アラートテスト中: {symbol}")
+            
+            # データソース確認
+            if not self.data_source:
+                from dotenv import load_dotenv
+                import os
+                load_dotenv()
+                
+                jquants_email = os.getenv('JQUANTS_EMAIL')
+                jquants_password = os.getenv('JQUANTS_PASSWORD')
+                refresh_token = os.getenv('JQUANTS_REFRESH_TOKEN')
+                
+                self.data_source = MultiDataSource(jquants_email, jquants_password, refresh_token)
+            
+            # 株価情報取得
+            stock_info = self.data_source.get_stock_info(symbol)
+            
+            if not stock_info:
+                messagebox.showwarning("警告", f"銘柄 {symbol} の株価データを取得できませんでした")
+                return
+            
+            # テストアラート送信
+            per_text = f"PER: {stock_info.pe_ratio:.2f}" if stock_info.pe_ratio else "PER: N/A"
+            pbr_text = f"PBR: {stock_info.pb_ratio:.2f}" if stock_info.pb_ratio else "PBR: N/A" 
+            dividend_text = f"配当利回り: {stock_info.dividend_yield:.2f}%" if stock_info.dividend_yield else "配当利回り: N/A"
+            roe_text = f"ROE: {stock_info.roe:.2f}%" if stock_info.roe else "ROE: N/A"
+            
+            test_message = (f"🧪 アラートテスト\n"
+                           f"銘柄: {stock_info.name} ({symbol})\n"
+                           f"現在価格: ¥{stock_info.current_price:,.0f}\n"
+                           f"{per_text}\n"
+                           f"{pbr_text}\n"
+                           f"{dividend_text}\n"
+                           f"{roe_text}\n"
+                           f"時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # アラート送信
+            self.alert_manager.send_alert(symbol, "test", test_message)
+            
+            self.update_status(f"アラートテスト完了: {symbol}")
+            messagebox.showinfo("完了", f"銘柄 {symbol} のテストアラートを送信しました")
+            
+        except Exception as e:
+            self.update_status(f"アラートテストエラー: {e}")
+            messagebox.showerror("エラー", f"アラートテスト中にエラーが発生しました: {e}")
+
+    def load_dividend_history(self):
+        """配当履歴を読み込み"""
+        symbol = self.dividend_symbol_var.get().strip()
+        if not symbol:
+            messagebox.showwarning("警告", "銘柄コードを入力してください")
+            return
+        
+        try:
+            years = int(self.dividend_years_var.get())
+            
+            # データソース確認
+            if not self.data_source:
+                from dotenv import load_dotenv
+                import os
+                load_dotenv()
+                
+                jquants_email = os.getenv('JQUANTS_EMAIL')
+                jquants_password = os.getenv('JQUANTS_PASSWORD') 
+                refresh_token = os.getenv('JQUANTS_REFRESH_TOKEN')
+                
+                self.data_source = MultiDataSource(jquants_email, jquants_password, refresh_token)
+            
+            self.update_status(f"配当履歴取得中: {symbol}")
+            
+            # 配当履歴取得
+            dividend_history = self.data_source.get_dividend_history(symbol, years)
+            
+            # テーブルクリア
+            for item in self.dividend_tree.get_children():
+                self.dividend_tree.delete(item)
+            
+            if not dividend_history:
+                self.update_status(f"配当履歴なし: {symbol}")
+                messagebox.showinfo("情報", f"銘柄 {symbol} の配当履歴が見つかりませんでした")
+                return
+            
+            # 成長率計算とテーブル更新
+            self._update_dividend_table(symbol, dividend_history)
+            
+            # サマリー更新
+            self._update_dividend_summary(dividend_history)
+            
+            self.update_status(f"配当履歴表示完了: {symbol} ({len(dividend_history)}年分)")
+            
+        except Exception as e:
+            self.update_status("配当履歴取得エラー")
+            messagebox.showerror("エラー", f"配当履歴取得中にエラーが発生しました: {e}")
+    
+    def _update_dividend_table(self, symbol, dividend_history):
+        """配当テーブルを更新"""
+        # 現在価格取得（利回り計算用）
+        current_price = None
+        if self.data_source:
+            stock_info = self.data_source.get_stock_info(symbol)
+            if stock_info:
+                current_price = stock_info.current_price
+        
+        # 年度順にソート
+        sorted_history = sorted(dividend_history, key=lambda x: x['year'])
+        
+        for i, record in enumerate(sorted_history):
+            year = record['year']
+            dividend = record['dividend']
+            
+            # 成長率計算
+            if i > 0:
+                prev_dividend = sorted_history[i-1]['dividend']
+                if prev_dividend > 0:
+                    growth_rate = ((dividend - prev_dividend) / prev_dividend) * 100
+                else:
+                    growth_rate = 0
+            else:
+                growth_rate = 0
+            
+            # 利回り推定
+            yield_estimate = ""
+            if current_price and dividend > 0:
+                yield_rate = (dividend / current_price) * 100
+                yield_estimate = f"{yield_rate:.2f}"
+            
+            # テーブル挿入
+            self.dividend_tree.insert("", "end", values=(
+                year,
+                f"¥{dividend:.1f}",
+                f"{growth_rate:+.1f}" if growth_rate != 0 else "-",
+                yield_estimate
+            ))
+    
+    def _update_dividend_summary(self, dividend_history):
+        """配当サマリーを更新"""
+        if len(dividend_history) < 2:
+            # データ不足
+            self.dividend_summary_labels["avg_growth"].config(text="データ不足")
+            self.dividend_summary_labels["trend_analysis"].config(text="要データ追加")
+            self.dividend_summary_labels["investment_score"].config(text="評価不可")
+            self.dividend_summary_labels["next_prediction"].config(text="予想不可")
+            return
+        
+        # 成長率計算
+        sorted_history = sorted(dividend_history, key=lambda x: x['year'])
+        growth_rates = []
+        
+        for i in range(1, len(sorted_history)):
+            prev_dividend = sorted_history[i-1]['dividend']
+            current_dividend = sorted_history[i]['dividend']
+            if prev_dividend > 0:
+                growth_rate = ((current_dividend - prev_dividend) / prev_dividend) * 100
+                growth_rates.append(growth_rate)
+        
+        # 平均成長率
+        avg_growth = sum(growth_rates) / len(growth_rates) if growth_rates else 0
+        self.dividend_summary_labels["avg_growth"].config(text=f"{avg_growth:+.2f}%/年")
+        
+        # トレンド分析
+        positive_count = sum(1 for rate in growth_rates if rate > 0)
+        positive_ratio = positive_count / len(growth_rates) if growth_rates else 0
+        
+        if positive_ratio >= 0.8:
+            trend_text = "Excellent"
+        elif positive_ratio >= 0.6:
+            trend_text = "Stable"
+        elif positive_ratio >= 0.4:
+            trend_text = "Average"
+        else:
+            trend_text = "Caution"
+        
+        self.dividend_summary_labels["trend_analysis"].config(text=trend_text)
+        
+        # 投資評価
+        if avg_growth > 5:
+            score_text = "High Rating"
+        elif avg_growth > 0:
+            score_text = "Good"
+        elif avg_growth > -5:
+            score_text = "Average"
+        else:
+            score_text = "Poor"
+        
+        self.dividend_summary_labels["investment_score"].config(text=score_text)
+        
+        # 来年予想
+        if growth_rates:
+            latest_dividend = sorted_history[-1]['dividend']
+            predicted_dividend = latest_dividend * (1 + avg_growth / 100)
+            self.dividend_summary_labels["next_prediction"].config(text=f"¥{predicted_dividend:.1f}")
+        else:
+            self.dividend_summary_labels["next_prediction"].config(text="予想不可")
+    
+    def show_dividend_chart(self):
+        """配当チャートを表示"""
+        symbol = self.dividend_symbol_var.get().strip()
+        if not symbol:
+            messagebox.showwarning("警告", "銘柄コードを入力してください")
+            return
+        
+        try:
+            years = int(self.dividend_years_var.get())
+            
+            # データソース確認
+            if not self.data_source:
+                from dotenv import load_dotenv
+                import os
+                load_dotenv()
+                
+                jquants_email = os.getenv('JQUANTS_EMAIL')
+                jquants_password = os.getenv('JQUANTS_PASSWORD')
+                refresh_token = os.getenv('JQUANTS_REFRESH_TOKEN')
+                
+                self.data_source = MultiDataSource(jquants_email, jquants_password, refresh_token)
+            
+            self.update_status(f"チャート作成中: {symbol}")
+            
+            # 配当履歴取得
+            dividend_history = self.data_source.get_dividend_history(symbol, years)
+            
+            if not dividend_history:
+                messagebox.showinfo("情報", f"銘柄 {symbol} の配当履歴が見つかりませんでした")
+                return
+            
+            # 現在価格取得
+            current_price = None
+            stock_info = self.data_source.get_stock_info(symbol)
+            if stock_info:
+                current_price = stock_info.current_price
+            
+            # チャート作成
+            chart_path = self.dividend_visualizer.create_dividend_chart(
+                symbol, dividend_history, current_price)
+            
+            if chart_path:
+                self.update_status(f"チャート作成完了: {chart_path}")
+                
+                # チャートファイルを開く
+                try:
+                    import subprocess
+                    if platform.system() == "Windows":
+                        os.startfile(chart_path)
+                    elif platform.system() == "Darwin":  # macOS
+                        subprocess.run(["open", chart_path])
+                    else:  # Linux/WSL
+                        # WSL環境の場合はWindowsのエクスプローラーで開く
+                        if 'microsoft' in platform.uname().release.lower():
+                            # WSL環境
+                            windows_path = chart_path.replace('/mnt/c', 'C:').replace('/', '\\')
+                            subprocess.run(["cmd.exe", "/c", "start", windows_path], check=False)
+                        else:
+                            subprocess.run(["xdg-open", chart_path])
+                except Exception as file_open_error:
+                    # ファイルオープンに失敗した場合はパスだけ表示
+                    print(f"ファイルオープンエラー: {file_open_error}")
+                    
+                messagebox.showinfo("完了", f"配当チャートを作成しました:\\n{chart_path}")
+            else:
+                messagebox.showerror("エラー", "チャート作成に失敗しました")
+                
+        except Exception as e:
+            self.update_status("チャート作成エラー")
+            messagebox.showerror("エラー", f"チャート作成中にエラーが発生しました: {e}")
 
     def run(self):
         """アプリケーション実行"""

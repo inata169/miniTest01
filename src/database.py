@@ -271,6 +271,10 @@ class DatabaseManager:
             print(f"保有銘柄削除エラー: {e}")
             return False
     
+    def delete_holding_by_symbol(self, symbol: str) -> bool:
+        """指定した銘柄を保有銘柄から削除（エイリアス）"""
+        return self.delete_holding(symbol)
+    
     def delete_all_holdings(self) -> int:
         """全ての保有銘柄を削除"""
         try:
