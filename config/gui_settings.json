@@ -1,5 +1,7 @@
 {
   "monitoring_ui": {
-    "auto_update_indices": false
+    "auto_update_indices": true,
+    "selected_strategy": "default_strategy",
+    "condition_mode": "any_two_of_three"
   }
 }

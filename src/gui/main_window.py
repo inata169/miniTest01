@@ -863,7 +863,7 @@ class MainWindow:
         strategy_frame = ttk.LabelFrame(parent_frame, text="戦略選択", padding=10)
         strategy_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        self.strategy_var = tk.StringVar(value="default_strategy")
+        self.strategy_var = tk.StringVar(value=self.load_monitoring_setting('selected_strategy', "default_strategy"))
         strategies = [
             ("default_strategy", "デフォルト戦略（3条件中2条件）"),
             ("defensive_strategy", "守備的戦略（高配当重視）"),
@@ -880,7 +880,7 @@ class MainWindow:
         mode_frame = ttk.LabelFrame(parent_frame, text="評価モード", padding=10)
         mode_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        self.condition_mode_var = tk.StringVar(value="any_two_of_three")
+        self.condition_mode_var = tk.StringVar(value=self.load_monitoring_setting('condition_mode', "any_two_of_three"))
         modes = [
             ("strict_and", "全条件必須（AND）"),
             ("any_one", "1条件でもOK（OR）"),
@@ -890,7 +890,7 @@ class MainWindow:
         
         for value, text in modes:
             ttk.Radiobutton(mode_frame, text=text, variable=self.condition_mode_var, 
-                           value=value).pack(anchor=tk.W, pady=2)
+                           value=value, command=self.save_monitoring_settings).pack(anchor=tk.W, pady=2)
         
         # 買い条件設定フレーム
         buy_frame = ttk.LabelFrame(parent_frame, text="買い条件設定", padding=10)
@@ -997,6 +997,8 @@ class MainWindow:
     def on_strategy_change(self):
         """戦略選択時の処理"""
         strategy_name = self.strategy_var.get()
+        # 戦略選択を保存
+        self.save_monitoring_settings()
         if strategy_name != "custom_strategy":
             self.load_strategy_preset(strategy_name)
     
@@ -1148,6 +1150,14 @@ class MainWindow:
                 settings['monitoring_ui'] = {}
             
             settings['monitoring_ui']['auto_update_indices'] = self.auto_update_indices.get()
+            
+            # 戦略選択設定も保存
+            if hasattr(self, 'strategy_var'):
+                settings['monitoring_ui']['selected_strategy'] = self.strategy_var.get()
+            
+            # 評価モード設定も保存
+            if hasattr(self, 'condition_mode_var'):
+                settings['monitoring_ui']['condition_mode'] = self.condition_mode_var.get()
             
             # 設定を保存
             os.makedirs("config", exist_ok=True)
