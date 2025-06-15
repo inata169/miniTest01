@@ -122,7 +122,13 @@ class AlertManager:
             smtp_port = email_config.get('smtp_port', 587)
             username = os.getenv('GMAIL_USERNAME') or email_config.get('username', '')
             password = os.getenv('GMAIL_APP_PASSWORD') or email_config.get('password', '')
-            recipients = email_config.get('recipients', [])
+            
+            # 受信者リストを環境変数から取得（カンマ区切りで複数指定対応）
+            recipients_env = os.getenv('GMAIL_RECIPIENTS', '')
+            if recipients_env:
+                recipients = [email.strip() for email in recipients_env.split(',')]
+            else:
+                recipients = email_config.get('recipients', [])
             
             if not all([username, password, recipients]):
                 print("メール設定が不完全です。環境変数GMAIL_USERNAMEとGMAIL_APP_PASSWORDを設定してください。")
@@ -364,7 +370,13 @@ class AlertManager:
             smtp_port = email_config.get('smtp_port', 587)
             username = os.getenv('GMAIL_USERNAME') or email_config.get('username', '')
             password = os.getenv('GMAIL_APP_PASSWORD') or email_config.get('password', '')
-            recipients = email_config.get('recipients', [])
+            
+            # 受信者リストを環境変数から取得（カンマ区切りで複数指定対応）
+            recipients_env = os.getenv('GMAIL_RECIPIENTS', '')
+            if recipients_env:
+                recipients = [email.strip() for email in recipients_env.split(',')]
+            else:
+                recipients = email_config.get('recipients', [])
             
             if not all([username, password, recipients]):
                 return
