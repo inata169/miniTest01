@@ -1,6 +1,6 @@
 # 日本株ウォッチドッグ (Japanese Stock Watchdog)
 
-![バージョン](https://img.shields.io/badge/version-1.4.4-blue.svg)
+![バージョン](https://img.shields.io/badge/version-1.4.6-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-green.svg)
 ![ライセンス](https://img.shields.io/badge/license-MIT-orange.svg)
 ![プラットフォーム](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
