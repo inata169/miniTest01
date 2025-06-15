@@ -30,8 +30,9 @@ data/backups/*.db
 # ログファイル（個人の取引履歴含む可能性）
 logs/*.log*
 
-# 個人設定ファイル
+# 個人設定ファイル（個人情報含む）
 config/settings_local.json
+config/settings.json
 
 # IDE設定
 .vscode/

@@ -9,7 +9,7 @@
       "smtp_port": 587,
       "username": "",
       "password": "",
-      "recipients": ["inata.hiroki@gmail.com"]
+      "recipients": ["your_email@example.com"]
     },
     "desktop": {
       "enabled": true
