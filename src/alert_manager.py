@@ -420,12 +420,12 @@ class AlertManager:
             print(f"日次レポートメール送信エラー: {e}")
     
     def test_notifications(self):
-        """通知機能のテスト"""
+        """通知機能のテスト（単一アラート送信）"""
         test_alert = Alert(
-            symbol="TEST",
+            symbol="7203",
             alert_type="test",
-            message="これはテスト通知です\\n通知機能が正常に動作しています",
-            triggered_price=1000,
+            message="これはテスト通知です\\nトヨタ自動車のサンプルアラートです\\n通知機能が正常に動作しています",
+            triggered_price=2500,
             strategy_name="test_strategy",
             timestamp=datetime.now()
         )

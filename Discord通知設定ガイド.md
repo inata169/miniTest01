@@ -96,7 +96,39 @@
 
 ### ステップ4: アプリにWebhookURLを設定
 
-#### 方法1: 環境変数で設定（推奨・安全）
+#### 方法1: .envファイルで設定（推奨・安全）
+
+**.envファイルでの設定は最も安全で推奨される方法です。**
+
+1. **プロジェクトのルートディレクトリに移動**
+   ```bash
+   # アプリのフォルダに移動
+   cd /path/to/stock_watchdog  # あなたのアプリフォルダ
+   ```
+
+2. **.envファイルを作成・編集**
+   ```bash
+   # .envファイルを作成（存在しない場合）
+   notepad .env     # Windows
+   nano .env        # Linux/macOS
+   ```
+
+3. **.envファイルに以下を記述**
+   ```bash
+   # Discord通知設定
+   DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1234567890/abcdefghijklmnopqrstuvwxyz
+   
+   # 他の設定（必要に応じて）
+   # GMAIL_USERNAME=your_email@gmail.com
+   # GMAIL_APP_PASSWORD=your_app_password
+   # JQUANTS_EMAIL=your_jquants_email@example.com
+   ```
+
+4. **ファイルを保存**
+   - 上書き保存してファイルを閉じる
+   - **重要**: .envファイルは他人に見せないでください
+
+#### 方法2: 環境変数で設定（従来方法）
 
 **Windows の場合:**
 ```cmd
@@ -111,9 +143,6 @@ setx DISCORD_WEBHOOK_URL "https://discord.com/api/webhooks/1234567890/abcdefghij
 ```bash
 # ターミナルで実行
 export DISCORD_WEBHOOK_URL="コピーしたWebhookURLをここに貼り付け"
-
-# 例
-export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1234567890/abcdefghijklmnopqrstuvwxyz"
 
 # 永続化（再起動後も有効）
 echo 'export DISCORD_WEBHOOK_URL="コピーしたWebhookURL"' >> ~/.bashrc
@@ -216,6 +245,15 @@ Discordサーバーで通知を確認してください
 4. 設定ファイルの場合、JSON形式が正しいか確認
 
 **確認コマンド:**
+
+**.envファイルの場合:**
+```bash
+# アプリを起動して動作確認
+python src/main.py --gui
+# 「アラートテスト」ボタンでDiscord通知をテスト
+```
+
+**環境変数の場合:**
 ```bash
 # Windows
 echo %DISCORD_WEBHOOK_URL%

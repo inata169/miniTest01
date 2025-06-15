@@ -107,6 +107,10 @@ class DividendVisualizer:
             
             plt.savefig(file_path, dpi=300, bbox_inches='tight', 
                        facecolor=self.colors['background'])
+            
+            # Windows環境での表示改善
+            self._display_chart_windows(file_path)
+            
             plt.close()
             
             app_logger.info(f"配当チャート作成完了: {file_path}")
@@ -275,6 +279,10 @@ class DividendVisualizer:
             plt.tight_layout()
             plt.savefig(file_path, dpi=300, bbox_inches='tight', 
                        facecolor=self.colors['background'])
+            
+            # Windows環境での表示改善
+            self._display_chart_windows(file_path)
+            
             plt.close()
             
             app_logger.info(f"配当比較チャート作成完了: {file_path}")
@@ -283,6 +291,158 @@ class DividendVisualizer:
         except Exception as e:
             app_logger.error(f"配当比較チャート作成エラー: {e}")
             return None
+
+    def _display_chart_windows(self, file_path):
+        """Windows環境でのチャート表示改善"""
+        try:
+            import platform
+            import os
+            import subprocess
+            import tkinter as tk
+            from tkinter import messagebox
+            
+            # Windowsプラットフォームのチェック
+            if platform.system() != 'Windows':
+                app_logger.info("Windows以外の環境ではチャート自動表示をスキップ")
+                return
+            
+            # ファイルの存在確認
+            if not os.path.exists(file_path):
+                app_logger.warning(f"チャートファイルが見つかりません: {file_path}")
+                return
+            
+            # ファイルサイズ取得
+            file_size = os.path.getsize(file_path)
+            file_size_mb = file_size / (1024 * 1024)
+            
+            # ファイル情報を整形
+            file_name = os.path.basename(file_path)
+            folder_path = os.path.dirname(file_path)
+            
+            # 複数の表示オプションを提供
+            message = (
+                f"📊 配当チャートが作成されました！\n\n"
+                f"📁 ファイル名: {file_name}\n"
+                f"📂 保存場所: {folder_path}\n"
+                f"💾 ファイルサイズ: {file_size_mb:.2f} MB\n\n"
+                f"以下のオプションから選択してください："
+            )
+            
+            # カスタムダイアログを作成
+            root = tk.Tk()
+            root.withdraw()  # メインウィンドウを隠す
+            
+            # 応答を格納する変数
+            response = tk.StringVar()
+            
+            def create_chart_dialog():
+                dialog = tk.Toplevel()
+                dialog.title("📊 配当チャート作成完了")
+                dialog.geometry("500x300")
+                dialog.resizable(False, False)
+                
+                # アイコンとメッセージ
+                tk.Label(dialog, text="📊", font=("Arial", 24)).pack(pady=10)
+                tk.Label(dialog, text="配当チャートが作成されました！", 
+                        font=("Arial", 14, "bold")).pack(pady=5)
+                
+                # ファイル情報フレーム
+                info_frame = tk.Frame(dialog, relief=tk.RIDGE, bd=2)
+                info_frame.pack(fill=tk.X, padx=20, pady=10)
+                
+                tk.Label(info_frame, text=f"📁 ファイル名: {file_name}", 
+                        font=("Arial", 10)).pack(anchor=tk.W, padx=10, pady=2)
+                tk.Label(info_frame, text=f"📂 保存場所: {folder_path}", 
+                        font=("Arial", 10)).pack(anchor=tk.W, padx=10, pady=2)
+                tk.Label(info_frame, text=f"💾 サイズ: {file_size_mb:.2f} MB", 
+                        font=("Arial", 10)).pack(anchor=tk.W, padx=10, pady=2)
+                
+                # ボタンフレーム
+                button_frame = tk.Frame(dialog)
+                button_frame.pack(fill=tk.X, padx=20, pady=15)
+                
+                def open_chart():
+                    response.set("open_chart")
+                    dialog.destroy()
+                
+                def open_folder():
+                    response.set("open_folder")
+                    dialog.destroy()
+                
+                def copy_path():
+                    response.set("copy_path")
+                    dialog.destroy()
+                
+                def close_dialog():
+                    response.set("close")
+                    dialog.destroy()
+                
+                # ボタン配置
+                tk.Button(button_frame, text="🖼️ チャートを表示", 
+                         command=open_chart, width=15, bg="#4CAF50", fg="white",
+                         font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
+                tk.Button(button_frame, text="📂 フォルダを開く", 
+                         command=open_folder, width=15, bg="#2196F3", fg="white",
+                         font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
+                tk.Button(button_frame, text="📋 パスをコピー", 
+                         command=copy_path, width=15, bg="#FF9800", fg="white",
+                         font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
+                tk.Button(button_frame, text="✕ 閉じる", 
+                         command=close_dialog, width=10, bg="#f44336", fg="white",
+                         font=("Arial", 10, "bold")).pack(side=tk.RIGHT, padx=5)
+                
+                # ダイアログを中央に配置
+                dialog.transient(root)
+                dialog.grab_set()
+                dialog.focus_set()
+                
+                # 画面中央に配置
+                dialog.update_idletasks()
+                x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+                y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+                dialog.geometry(f"+{x}+{y}")
+                
+                # ESCキーで閉じる
+                dialog.bind('<Escape>', lambda e: close_dialog())
+                
+                # ダイアログが閉じられるまで待機
+                dialog.wait_window()
+            
+            # ダイアログを表示
+            create_chart_dialog()
+            
+            # ユーザーの選択に基づいて実行
+            user_choice = response.get()
+            
+            if user_choice == "open_chart":
+                # チャートを既定のアプリで開く
+                os.startfile(file_path)
+                app_logger.info(f"チャートファイルを開きました: {file_path}")
+                
+            elif user_choice == "open_folder":
+                # エクスプローラーでフォルダを開き、ファイルを選択
+                subprocess.run(['explorer', '/select,', file_path])
+                app_logger.info(f"エクスプローラーでファイルを選択しました: {file_path}")
+                
+            elif user_choice == "copy_path":
+                # クリップボードにパスをコピー
+                root.clipboard_clear()
+                root.clipboard_append(file_path)
+                root.update()
+                messagebox.showinfo("コピー完了", f"ファイルパスをクリップボードにコピーしました:\n{file_path}")
+                app_logger.info(f"ファイルパスをクリップボードにコピー: {file_path}")
+            
+            root.destroy()
+            
+        except Exception as e:
+            app_logger.error(f"Windowsチャート表示エラー: {e}")
+            # フォールバック：シンプルなメッセージボックス
+            try:
+                import tkinter.messagebox as messagebox
+                messagebox.showinfo("チャート作成完了", 
+                                  f"配当チャートが作成されました。\n\nファイル場所:\n{file_path}")
+            except:
+                print(f"配当チャートが作成されました: {file_path}")
 
 
 def test_dividend_visualizer():

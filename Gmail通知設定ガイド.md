@@ -54,13 +54,44 @@ Gmail通知を使うには、アプリがあなたのGmailアカウントにア�
    - **このパスワードをコピーしてください**
    - **二度と表示されないので注意！**
 
-### ステップ3: 環境変数に安全に保存する
+### ステップ3: .envファイルに安全に保存する（推奨）
 
-**環境変数は、パスワードを安全に保存する方法です。**
+**.envファイルは、パスワードを安全に保存する最新の方法です。**
 
-#### Windows での設定方法
+#### .envファイルでの設定方法（推奨）
 
-1. **環境変数設定画面を開く**
+1. **プロジェクトのルートディレクトリに移動**
+   ```bash
+   # アプリのフォルダに移動
+   cd /path/to/stock_watchdog  # あなたのアプリフォルダ
+   ```
+
+2. **.envファイルを作成・編集**
+   ```bash
+   # .envファイルを作成（存在しない場合）
+   notepad .env     # Windows
+   nano .env        # Linux/macOS
+   ```
+
+3. **.envファイルに以下を記述**
+   ```bash
+   # Gmail通知設定
+   GMAIL_USERNAME=your_email@gmail.com
+   GMAIL_APP_PASSWORD=abcd efgh ijkl mnop
+   
+   # 他の設定（必要に応じて）
+   # DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+   # JQUANTS_EMAIL=your_jquants_email@example.com
+   # JQUANTS_REFRESH_TOKEN=your_refresh_token
+   ```
+
+4. **ファイルを保存**
+   - 上書き保存してファイルを閉じる
+   - **重要**: .envファイルは他人に見せないでください
+
+#### 従来の環境変数設定方法（代替手段）
+
+1. **Windows環境変数設定画面を開く**
    ```
    方法1: スタートメニューで「環境変数」と検索
    方法2: Win + R → 「sysdm.cpl」→ 詳細設定 → 環境変数
@@ -69,30 +100,29 @@ Gmail通知を使うには、アプリがあなたのGmailアカウントにア�
 2. **新しい環境変数を作成**
    - 「新規」ボタンをクリック
    - **変数名**: `GMAIL_USERNAME`
-   - **変数値**: あなたのGmailアドレス（例：`your_email@gmail.com`）
+   - **変数値**: あなたのGmailアドレス
    - 「OK」をクリック
 
 3. **アプリパスワード用の環境変数を作成**
-   - 再び「新規」ボタンをクリック
    - **変数名**: `GMAIL_APP_PASSWORD`
    - **変数値**: ステップ2でコピーしたアプリパスワード
-   - 「OK」をクリック
-
-4. **設定を保存**
-   - 全ての画面で「OK」をクリック
-   - **パソコンを再起動**（重要！）
+   - パソコンを再起動
 
 #### 設定確認方法
 
-パソコン再起動後、PowerShellで確認：
+**.envファイルの場合:**
+```bash
+# アプリを起動して動作確認
+python src/main.py --gui
+# 「アラートテスト」ボタンでGmail通知をテスト
+```
 
+**環境変数の場合:**
 ```powershell
-# PowerShellを開いて以下を実行
+# PowerShellで確認
 echo $env:GMAIL_USERNAME
 echo $env:GMAIL_APP_PASSWORD
 ```
-
-正しく設定されていれば、あなたのメールアドレスとアプリパスワードが表示されます。
 
 ---
 
@@ -121,8 +151,24 @@ echo $env:GMAIL_APP_PASSWORD
 
 3. **重要なポイント**
    - `username` と `password` は**空のまま**にしてください
-   - アプリが環境変数から自動的に読み込みます
+   - アプリが.envファイルまたは環境変数から自動的に読み込みます
    - `recipients` にはアラートを受け取りたいメールアドレスを入力
+
+### .envファイルが見つからない場合
+
+1. **.env.exampleファイルをコピー**
+   ```bash
+   # プロジェクトルートで実行
+   cp .env.example .env     # Linux/macOS
+   copy .env.example .env   # Windows
+   ```
+
+2. **.envファイルを編集**
+   ```bash
+   # .envファイルを開いて必要な値を設定
+   GMAIL_USERNAME=your_email@gmail.com
+   GMAIL_APP_PASSWORD=your_app_password
+   ```
 
 ---
 

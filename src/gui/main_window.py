@@ -96,7 +96,12 @@ class MainWindow:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("日本株ウォッチドッグ (Japanese Stock Watchdog)")
-        self.root.geometry("1300x930")  # 1000x700 * 1.3 + 20px
+        
+        # ウィンドウサイズと位置の設定
+        self.setup_window_geometry()
+        
+        # ウィンドウクローズ時の処理
+        self.root.protocol("WM_DELETE_WINDOW", self.on_window_close)
         
         # 日本語フォント設定
         self.setup_japanese_font()
@@ -859,6 +864,42 @@ class MainWindow:
         title_label = ttk.Label(parent_frame, text="アラート戦略設定", font=self.japanese_font_large)
         title_label.pack(pady=(10, 20))
         
+        # 便利なプリセット選択フレーム
+        preset_frame = ttk.LabelFrame(parent_frame, text="便利なプリセット", padding=10)
+        preset_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        preset_desc_frame = ttk.Frame(preset_frame)
+        preset_desc_frame.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(preset_desc_frame, text="💡 よく使われるアラート設定をワンクリックで適用:", 
+                 font=self.japanese_font_bold, foreground='#007acc').pack(side=tk.LEFT)
+        
+        preset_control_frame = ttk.Frame(preset_frame)
+        preset_control_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(preset_control_frame, text="プリセット:").pack(side=tk.LEFT, padx=(0, 5))
+        
+        # プリセット一覧
+        self.preset_var = tk.StringVar()
+        preset_options = [
+            ("", "-- プリセットを選択 --"),
+            ("beginner_safe", "🔰 初心者向け安全設定（高配当・低リスク）"),
+            ("balanced_growth", "⚖️ バランス成長（配当+成長性）"),
+            ("value_hunting", "💎 バリュー株狙い（割安株発見）"),
+            ("dividend_focus", "💰 高配当重視（配当利回り3%以上）"),
+            ("growth_momentum", "🚀 成長株モメンタム（PER重視）"),
+            ("defensive_income", "🛡️ ディフェンシブ収益（安定配当）"),
+            ("aggressive_value", "⚡ アグレッシブ・バリュー（積極投資）")
+        ]
+        
+        preset_combo = ttk.Combobox(preset_control_frame, textvariable=self.preset_var, 
+                                   values=[option[1] for option in preset_options], 
+                                   state="readonly", width=40)
+        preset_combo.pack(side=tk.LEFT, padx=5)
+        preset_combo.bind("<<ComboboxSelected>>", self.apply_preset)
+        
+        ttk.Button(preset_control_frame, text="適用", command=self.apply_selected_preset).pack(side=tk.LEFT, padx=5)
+        ttk.Button(preset_control_frame, text="リセット", command=self.reset_to_defaults).pack(side=tk.LEFT, padx=5)
+        
         # 戦略選択フレーム
         strategy_frame = ttk.LabelFrame(parent_frame, text="戦略選択", padding=10)
         strategy_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -900,9 +941,9 @@ class MainWindow:
         dividend_frame = ttk.Frame(buy_frame)
         dividend_frame.pack(fill=tk.X, pady=5)
         ttk.Label(dividend_frame, text="配当利回り 最低").pack(side=tk.LEFT)
-        self.dividend_var = tk.DoubleVar(value=1.0)
+        self.dividend_var = tk.DoubleVar(value=self.load_monitoring_setting('dividend_yield_min', 1.0))
         dividend_spin = ttk.Spinbox(dividend_frame, from_=0.0, to=10.0, increment=0.1, 
-                                   textvariable=self.dividend_var, width=10)
+                                   textvariable=self.dividend_var, width=10, command=self.save_monitoring_settings)
         dividend_spin.pack(side=tk.LEFT, padx=5)
         ttk.Label(dividend_frame, text="% 以上").pack(side=tk.LEFT)
         
@@ -910,9 +951,9 @@ class MainWindow:
         per_frame = ttk.Frame(buy_frame)
         per_frame.pack(fill=tk.X, pady=5)
         ttk.Label(per_frame, text="PER 最大").pack(side=tk.LEFT)
-        self.per_var = tk.DoubleVar(value=40.0)
+        self.per_var = tk.DoubleVar(value=self.load_monitoring_setting('per_max', 40.0))
         per_spin = ttk.Spinbox(per_frame, from_=5.0, to=100.0, increment=1.0,
-                              textvariable=self.per_var, width=10)
+                              textvariable=self.per_var, width=10, command=self.save_monitoring_settings)
         per_spin.pack(side=tk.LEFT, padx=5)
         ttk.Label(per_frame, text="以下").pack(side=tk.LEFT)
         
@@ -920,9 +961,9 @@ class MainWindow:
         pbr_frame = ttk.Frame(buy_frame)
         pbr_frame.pack(fill=tk.X, pady=5)
         ttk.Label(pbr_frame, text="PBR 最大").pack(side=tk.LEFT)
-        self.pbr_var = tk.DoubleVar(value=4.0)
+        self.pbr_var = tk.DoubleVar(value=self.load_monitoring_setting('pbr_max', 4.0))
         pbr_spin = ttk.Spinbox(pbr_frame, from_=0.5, to=10.0, increment=0.1,
-                              textvariable=self.pbr_var, width=10)
+                              textvariable=self.pbr_var, width=10, command=self.save_monitoring_settings)
         pbr_spin.pack(side=tk.LEFT, padx=5)
         ttk.Label(pbr_frame, text="以下").pack(side=tk.LEFT)
         
@@ -934,9 +975,9 @@ class MainWindow:
         profit_frame = ttk.Frame(sell_frame)
         profit_frame.pack(fill=tk.X, pady=5)
         ttk.Label(profit_frame, text="利益確定").pack(side=tk.LEFT)
-        self.profit_var = tk.DoubleVar(value=8.0)
+        self.profit_var = tk.DoubleVar(value=self.load_monitoring_setting('profit_target', 8.0))
         profit_spin = ttk.Spinbox(profit_frame, from_=1.0, to=50.0, increment=1.0,
-                                 textvariable=self.profit_var, width=10)
+                                 textvariable=self.profit_var, width=10, command=self.save_monitoring_settings)
         profit_spin.pack(side=tk.LEFT, padx=5)
         ttk.Label(profit_frame, text="% 以上").pack(side=tk.LEFT)
         
@@ -944,9 +985,9 @@ class MainWindow:
         loss_frame = ttk.Frame(sell_frame)
         loss_frame.pack(fill=tk.X, pady=5)
         ttk.Label(loss_frame, text="損切り").pack(side=tk.LEFT)
-        self.loss_var = tk.DoubleVar(value=-3.0)
+        self.loss_var = tk.DoubleVar(value=self.load_monitoring_setting('stop_loss', -3.0))
         loss_spin = ttk.Spinbox(loss_frame, from_=-20.0, to=-1.0, increment=1.0,
-                               textvariable=self.loss_var, width=10)
+                               textvariable=self.loss_var, width=10, command=self.save_monitoring_settings)
         loss_spin.pack(side=tk.LEFT, padx=5)
         ttk.Label(loss_frame, text="% 以下").pack(side=tk.LEFT)
         
@@ -958,33 +999,33 @@ class MainWindow:
         div_weight_frame = ttk.Frame(weight_frame)
         div_weight_frame.pack(fill=tk.X, pady=2)
         ttk.Label(div_weight_frame, text="配当利回り重み").pack(side=tk.LEFT)
-        self.div_weight_var = tk.DoubleVar(value=0.4)
+        self.div_weight_var = tk.DoubleVar(value=self.load_monitoring_setting('dividend_weight', 0.4))
         ttk.Spinbox(div_weight_frame, from_=0.0, to=1.0, increment=0.1,
-                   textvariable=self.div_weight_var, width=10).pack(side=tk.LEFT, padx=5)
+                   textvariable=self.div_weight_var, width=10, command=self.save_monitoring_settings).pack(side=tk.LEFT, padx=5)
         
         # PER重み
         per_weight_frame = ttk.Frame(weight_frame)
         per_weight_frame.pack(fill=tk.X, pady=2)
         ttk.Label(per_weight_frame, text="PER重み").pack(side=tk.LEFT)
-        self.per_weight_var = tk.DoubleVar(value=0.3)
+        self.per_weight_var = tk.DoubleVar(value=self.load_monitoring_setting('per_weight', 0.3))
         ttk.Spinbox(per_weight_frame, from_=0.0, to=1.0, increment=0.1,
-                   textvariable=self.per_weight_var, width=10).pack(side=tk.LEFT, padx=5)
+                   textvariable=self.per_weight_var, width=10, command=self.save_monitoring_settings).pack(side=tk.LEFT, padx=5)
         
         # PBR重み
         pbr_weight_frame = ttk.Frame(weight_frame)
         pbr_weight_frame.pack(fill=tk.X, pady=2)
         ttk.Label(pbr_weight_frame, text="PBR重み").pack(side=tk.LEFT)
-        self.pbr_weight_var = tk.DoubleVar(value=0.3)
+        self.pbr_weight_var = tk.DoubleVar(value=self.load_monitoring_setting('pbr_weight', 0.3))
         ttk.Spinbox(pbr_weight_frame, from_=0.0, to=1.0, increment=0.1,
-                   textvariable=self.pbr_weight_var, width=10).pack(side=tk.LEFT, padx=5)
+                   textvariable=self.pbr_weight_var, width=10, command=self.save_monitoring_settings).pack(side=tk.LEFT, padx=5)
         
         # 最小スコア
         min_score_frame = ttk.Frame(weight_frame)
         min_score_frame.pack(fill=tk.X, pady=2)
         ttk.Label(min_score_frame, text="最小スコア").pack(side=tk.LEFT)
-        self.min_score_var = tk.DoubleVar(value=0.6)
+        self.min_score_var = tk.DoubleVar(value=self.load_monitoring_setting('min_score', 0.6))
         ttk.Spinbox(min_score_frame, from_=0.1, to=1.0, increment=0.1,
-                   textvariable=self.min_score_var, width=10).pack(side=tk.LEFT, padx=5)
+                   textvariable=self.min_score_var, width=10, command=self.save_monitoring_settings).pack(side=tk.LEFT, padx=5)
         
         # ボタンフレーム
         button_frame = ttk.Frame(parent_frame)
@@ -1158,6 +1199,30 @@ class MainWindow:
             # 評価モード設定も保存
             if hasattr(self, 'condition_mode_var'):
                 settings['monitoring_ui']['condition_mode'] = self.condition_mode_var.get()
+            
+            # 買い条件設定を保存
+            if hasattr(self, 'dividend_var'):
+                settings['monitoring_ui']['dividend_yield_min'] = self.dividend_var.get()
+            if hasattr(self, 'per_var'):
+                settings['monitoring_ui']['per_max'] = self.per_var.get()
+            if hasattr(self, 'pbr_var'):
+                settings['monitoring_ui']['pbr_max'] = self.pbr_var.get()
+            
+            # 売り条件設定を保存
+            if hasattr(self, 'profit_var'):
+                settings['monitoring_ui']['profit_target'] = self.profit_var.get()
+            if hasattr(self, 'loss_var'):
+                settings['monitoring_ui']['stop_loss'] = self.loss_var.get()
+            
+            # 重み設定を保存
+            if hasattr(self, 'div_weight_var'):
+                settings['monitoring_ui']['dividend_weight'] = self.div_weight_var.get()
+            if hasattr(self, 'per_weight_var'):
+                settings['monitoring_ui']['per_weight'] = self.per_weight_var.get()
+            if hasattr(self, 'pbr_weight_var'):
+                settings['monitoring_ui']['pbr_weight'] = self.pbr_weight_var.get()
+            if hasattr(self, 'min_score_var'):
+                settings['monitoring_ui']['min_score'] = self.min_score_var.get()
             
             # 設定を保存
             os.makedirs("config", exist_ok=True)
@@ -2345,14 +2410,11 @@ PBR: 1.0 ✅ (設定: 4.0以下)
     def _send_test_alert(self, message):
         """テストアラートを非同期送信"""
         try:
-            # AlertManagerのtest_notifications機能を使用
-            self.alert_manager.test_notifications()
-            
             # AlertオブジェクトをインポートしてからTESTアラートを作成
             from stock_monitor import Alert
             
             test_alert = Alert(
-                symbol="TEST",
+                symbol="7203",
                 alert_type="test",
                 message=message,
                 triggered_price=2500.0,
@@ -2360,7 +2422,7 @@ PBR: 1.0 ✅ (設定: 4.0以下)
                 timestamp=datetime.now()
             )
             
-            # アラート送信
+            # アラート送信（単一送信のみ）
             self.alert_manager.send_alert(test_alert)
             
             # データベースにもアラートを記録
@@ -3871,6 +3933,305 @@ CONTRIBUTING.md をご参照ください
             except:
                 # エラーが発生した場合は安全にクリーンアップ
                 self._cleanup_context_menu()
+
+    def apply_preset(self, event):
+        """プリセット選択時の処理"""
+        self.apply_selected_preset()
+    
+    def apply_selected_preset(self):
+        """選択されたプリセットを適用"""
+        try:
+            preset_text = self.preset_var.get()
+            if not preset_text or preset_text.startswith("--"):
+                return
+            
+            # プリセット名を抽出（絵文字の後の最初の単語を取得）
+            preset_key = ""
+            if "🔰 初心者向け" in preset_text:
+                preset_key = "beginner_safe"
+            elif "⚖️ バランス成長" in preset_text:
+                preset_key = "balanced_growth"
+            elif "💎 バリュー株" in preset_text:
+                preset_key = "value_hunting"
+            elif "💰 高配当重視" in preset_text:
+                preset_key = "dividend_focus"
+            elif "🚀 成長株" in preset_text:
+                preset_key = "growth_momentum"
+            elif "🛡️ ディフェンシブ" in preset_text:
+                preset_key = "defensive_income"
+            elif "⚡ アグレッシブ" in preset_text:
+                preset_key = "aggressive_value"
+            
+            if preset_key:
+                self.load_preset_config(preset_key)
+                self.save_monitoring_settings()  # 設定を即座に保存
+                messagebox.showinfo("プリセット適用", f"「{preset_text}」を適用しました！")
+            
+        except Exception as e:
+            messagebox.showerror("エラー", f"プリセット適用エラー: {e}")
+    
+    def load_preset_config(self, preset_key):
+        """プリセット設定を読み込み"""
+        presets = {
+            "beginner_safe": {
+                "strategy": "defensive_strategy",
+                "condition_mode": "any_two_of_three",
+                "dividend_yield_min": 3.0,
+                "per_max": 20.0,
+                "pbr_max": 2.0,
+                "profit_target": 10.0,
+                "stop_loss": -5.0,
+                "dividend_weight": 0.6,
+                "per_weight": 0.2,
+                "pbr_weight": 0.2,
+                "min_score": 0.7
+            },
+            "balanced_growth": {
+                "strategy": "default_strategy",
+                "condition_mode": "any_two_of_three",
+                "dividend_yield_min": 2.0,
+                "per_max": 30.0,
+                "pbr_max": 3.0,
+                "profit_target": 12.0,
+                "stop_loss": -4.0,
+                "dividend_weight": 0.4,
+                "per_weight": 0.3,
+                "pbr_weight": 0.3,
+                "min_score": 0.6
+            },
+            "value_hunting": {
+                "strategy": "aggressive_strategy",
+                "condition_mode": "any_one",
+                "dividend_yield_min": 1.5,
+                "per_max": 15.0,
+                "pbr_max": 1.5,
+                "profit_target": 15.0,
+                "stop_loss": -3.0,
+                "dividend_weight": 0.2,
+                "per_weight": 0.4,
+                "pbr_weight": 0.4,
+                "min_score": 0.5
+            },
+            "dividend_focus": {
+                "strategy": "defensive_strategy",
+                "condition_mode": "weighted_score",
+                "dividend_yield_min": 3.0,
+                "per_max": 50.0,
+                "pbr_max": 5.0,
+                "profit_target": 8.0,
+                "stop_loss": -6.0,
+                "dividend_weight": 0.7,
+                "per_weight": 0.15,
+                "pbr_weight": 0.15,
+                "min_score": 0.8
+            },
+            "growth_momentum": {
+                "strategy": "growth_strategy",
+                "condition_mode": "strict_and",
+                "dividend_yield_min": 1.0,
+                "per_max": 25.0,
+                "pbr_max": 2.5,
+                "profit_target": 20.0,
+                "stop_loss": -2.0,
+                "dividend_weight": 0.1,
+                "per_weight": 0.5,
+                "pbr_weight": 0.4,
+                "min_score": 0.5
+            },
+            "defensive_income": {
+                "strategy": "defensive_strategy",
+                "condition_mode": "any_two_of_three",
+                "dividend_yield_min": 4.0,
+                "per_max": 25.0,
+                "pbr_max": 2.5,
+                "profit_target": 6.0,
+                "stop_loss": -8.0,
+                "dividend_weight": 0.8,
+                "per_weight": 0.1,
+                "pbr_weight": 0.1,
+                "min_score": 0.9
+            },
+            "aggressive_value": {
+                "strategy": "aggressive_strategy",
+                "condition_mode": "any_one",
+                "dividend_yield_min": 1.0,
+                "per_max": 12.0,
+                "pbr_max": 1.2,
+                "profit_target": 25.0,
+                "stop_loss": -2.0,
+                "dividend_weight": 0.2,
+                "per_weight": 0.4,
+                "pbr_weight": 0.4,
+                "min_score": 0.4
+            }
+        }
+        
+        config = presets.get(preset_key, {})
+        if config:
+            # 戦略と評価モードを設定
+            if hasattr(self, 'strategy_var'):
+                self.strategy_var.set(config.get("strategy", "default_strategy"))
+            if hasattr(self, 'condition_mode_var'):
+                self.condition_mode_var.set(config.get("condition_mode", "any_two_of_three"))
+            
+            # 買い・売り条件を設定
+            if hasattr(self, 'dividend_var'):
+                self.dividend_var.set(config.get("dividend_yield_min", 1.0))
+            if hasattr(self, 'per_var'):
+                self.per_var.set(config.get("per_max", 40.0))
+            if hasattr(self, 'pbr_var'):
+                self.pbr_var.set(config.get("pbr_max", 4.0))
+            if hasattr(self, 'profit_var'):
+                self.profit_var.set(config.get("profit_target", 8.0))
+            if hasattr(self, 'loss_var'):
+                self.loss_var.set(config.get("stop_loss", -3.0))
+            
+            # 重み設定
+            if hasattr(self, 'div_weight_var'):
+                self.div_weight_var.set(config.get("dividend_weight", 0.4))
+            if hasattr(self, 'per_weight_var'):
+                self.per_weight_var.set(config.get("per_weight", 0.3))
+            if hasattr(self, 'pbr_weight_var'):
+                self.pbr_weight_var.set(config.get("pbr_weight", 0.3))
+            if hasattr(self, 'min_score_var'):
+                self.min_score_var.set(config.get("min_score", 0.6))
+    
+    def reset_to_defaults(self):
+        """デフォルト設定にリセット"""
+        try:
+            # デフォルト値を設定
+            if hasattr(self, 'strategy_var'):
+                self.strategy_var.set("default_strategy")
+            if hasattr(self, 'condition_mode_var'):
+                self.condition_mode_var.set("any_two_of_three")
+            if hasattr(self, 'dividend_var'):
+                self.dividend_var.set(1.0)
+            if hasattr(self, 'per_var'):
+                self.per_var.set(40.0)
+            if hasattr(self, 'pbr_var'):
+                self.pbr_var.set(4.0)
+            if hasattr(self, 'profit_var'):
+                self.profit_var.set(8.0)
+            if hasattr(self, 'loss_var'):
+                self.loss_var.set(-3.0)
+            if hasattr(self, 'div_weight_var'):
+                self.div_weight_var.set(0.4)
+            if hasattr(self, 'per_weight_var'):
+                self.per_weight_var.set(0.3)
+            if hasattr(self, 'pbr_weight_var'):
+                self.pbr_weight_var.set(0.3)
+            if hasattr(self, 'min_score_var'):
+                self.min_score_var.set(0.6)
+            
+            # プリセット選択をリセット
+            if hasattr(self, 'preset_var'):
+                self.preset_var.set("")
+            
+            self.save_monitoring_settings()  # 設定を即座に保存
+            messagebox.showinfo("リセット完了", "デフォルト設定にリセットしました！")
+            
+        except Exception as e:
+            messagebox.showerror("エラー", f"リセットエラー: {e}")
+
+    def setup_window_geometry(self):
+        """ウィンドウサイズと位置を設定"""
+        try:
+            # 保存された設定を読み込み
+            geometry = self.load_monitoring_setting('window_geometry', None)
+            
+            if geometry:
+                # 保存された設定を適用
+                self.root.geometry(geometry)
+                print(f"保存されたウィンドウ設定を適用: {geometry}")
+            else:
+                # デフォルト設定
+                default_geometry = "1300x930+100+50"  # width x height + x_offset + y_offset
+                self.root.geometry(default_geometry)
+                print(f"デフォルトウィンドウ設定を適用: {default_geometry}")
+            
+            # 最小サイズを設定
+            self.root.minsize(1000, 700)
+            
+            # ウィンドウの中央表示（デフォルト設定の場合のみ）
+            if not geometry:
+                self.center_window()
+                
+        except Exception as e:
+            print(f"ウィンドウ設定エラー: {e}")
+            # エラー時はデフォルト設定
+            self.root.geometry("1300x930")
+            self.root.minsize(1000, 700)
+    
+    def center_window(self):
+        """ウィンドウを画面中央に配置"""
+        try:
+            self.root.update_idletasks()  # ウィンドウサイズを確定
+            
+            # 画面サイズを取得
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            
+            # ウィンドウサイズを取得
+            window_width = self.root.winfo_reqwidth()
+            window_height = self.root.winfo_reqheight()
+            
+            # 中央位置を計算
+            x = (screen_width - window_width) // 2
+            y = (screen_height - window_height) // 2
+            
+            # 位置を設定
+            self.root.geometry(f"+{x}+{y}")
+            
+        except Exception as e:
+            print(f"ウィンドウ中央配置エラー: {e}")
+    
+    def save_window_geometry(self):
+        """現在のウィンドウサイズと位置を保存"""
+        try:
+            geometry = self.root.geometry()
+            
+            # gui_settings.jsonに保存
+            import json
+            settings_file = "config/gui_settings.json"
+            
+            # 既存設定を読み込み
+            settings = {}
+            if os.path.exists(settings_file):
+                with open(settings_file, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+            
+            # ウィンドウ設定を更新
+            if 'monitoring_ui' not in settings:
+                settings['monitoring_ui'] = {}
+            
+            settings['monitoring_ui']['window_geometry'] = geometry
+            
+            # 設定を保存
+            os.makedirs("config", exist_ok=True)
+            with open(settings_file, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+                
+            print(f"ウィンドウ設定を保存: {geometry}")
+                
+        except Exception as e:
+            print(f"ウィンドウ設定保存エラー: {e}")
+    
+    def on_window_close(self):
+        """ウィンドウクローズ時の処理"""
+        try:
+            # ウィンドウ設定を保存
+            self.save_window_geometry()
+            
+            # 監視設定も保存
+            self.save_monitoring_settings()
+            
+            # アプリケーション終了
+            self.root.destroy()
+            
+        except Exception as e:
+            print(f"終了処理エラー: {e}")
+            # エラーが発生してもアプリケーションは終了
+            self.root.destroy()
 
     def run(self):
         """アプリケーション実行"""

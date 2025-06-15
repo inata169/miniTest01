@@ -53,6 +53,55 @@
 - **💼 投資による利益・損失は全て自己責任となります**
 - **📚 投資前に十分な調査・検討を行うことを強く推奨します**
 
+## 🚀 初めての方へ：おすすめ初期設定（3ステップ）
+
+### ⭐ **STEP 1: アプリのインストール**
+まずはお使いの環境に応じてアプリをインストールしてください。
+
+### ⭐ **STEP 2: .env ファイルの設定（セキュア認証情報管理）**
+アプリのルートディレクトリに `.env` ファイルを作成し、以下を設定：
+
+```bash
+# J Quants API設定（推奨・無料）
+JQUANTS_EMAIL=your_email@example.com
+JQUANTS_REFRESH_TOKEN=your_refresh_token_here
+
+# Gmail通知設定（オプション）
+GMAIL_USERNAME=your_gmail@gmail.com
+GMAIL_APP_PASSWORD=your_app_password_here
+
+# Discord通知設定（オプション）
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your_webhook_url
+```
+
+### ⭐ **STEP 3: settings.json の基本設定**
+`config/settings.json` で通知方法を設定：
+
+```json
+{
+  "notifications": {
+    "email": {
+      "enabled": true,
+      "smtp_server": "smtp.gmail.com",
+      "smtp_port": 587,
+      "recipients": ["your_email@gmail.com"]
+    },
+    "discord": {
+      "enabled": true
+    },
+    "desktop": {
+      "enabled": true
+    }
+  }
+}
+```
+
+### 📋 **設定ガイド**
+- 📧 [Gmail通知設定ガイド.md](Gmail通知設定ガイド.md) - .env ファイル対応の最新手順
+- 💬 [Discord通知設定ガイド.md](Discord通知設定ガイド.md) - .env ファイル対応の最新手順
+
+---
+
 ## 🔗 J Quants API について
 
 ### 📊 J Quants API（無料）の活用推奨
@@ -489,22 +538,67 @@ python3 src/main.py --gui
 
 ## ⚙️ 設定ファイル
 
-### 投資戦略設定 (`config/strategies.json`)
+### 📊 GUI設定の永続化 (`config/gui_settings.json`) - **自動生成**
+アプリのGUI設定は自動的に保存・復元されます：
+
 ```json
 {
-  \"default_strategy\": {
-    \"buy_conditions\": {
-      \"dividend_yield_min\": 1.0,    // 最低配当利回り（%）
-      \"per_max\": 40.0,              // 最大PER
-      \"pbr_max\": 4.0                // 最大PBR
+  "monitoring_ui": {
+    "selected_strategy": "defensive_strategy",      // 選択中の戦略
+    "condition_mode": "any_two_of_three",          // 評価モード
+    "auto_update_indices": true,                   // 自動更新設定
+    "dividend_yield_min": 3.0,                     // 配当利回り閾値
+    "per_max": 20.0,                               // PER上限
+    "pbr_max": 2.0,                                // PBR上限
+    "profit_target": 10.0,                         // 利益確定%
+    "stop_loss": -5.0,                             // 損切り%
+    "dividend_weight": 0.6,                        // 配当重み
+    "per_weight": 0.2,                             // PER重み
+    "pbr_weight": 0.2,                             // PBR重み
+    "min_score": 0.7,                              // 最小スコア
+    "window_geometry": "1300x930+150+100"          // ウィンドウサイズ・位置
+  }
+}
+```
+
+### 🎯 投資戦略テンプレート (`config/strategies.json`) - **参照用**
+プリセット戦略のテンプレート定義（GUI内のプリセットドロップダウンで上書き設定されます）：
+
+```json
+{
+  "default_strategy": {
+    "condition_mode": "any_two_of_three",          // 3条件中2条件で発火
+    "buy_conditions": {
+      "dividend_yield_min": 2.0,                   // 最低配当利回り（%）
+      "per_max": 15.0,                             // 最大PER
+      "pbr_max": 1.5                               // 最大PBR
     },
-    \"sell_conditions\": {
-      \"profit_target\": 20.0,        // 利益確定ライン（%）
-      \"stop_loss\": -10.0            // 損切りライン（%）
+    "sell_conditions": {
+      "profit_target": 15.0,                       // 利益確定ライン（%）
+      "stop_loss": -8.0                            // 損切りライン（%）
+    },
+    "weights": {
+      "dividend_weight": 0.4,                      // 配当重視度
+      "per_weight": 0.3,                           // PER重視度
+      "pbr_weight": 0.3                            // PBR重視度
+    }
+  },
+  "defensive_strategy": {
+    "condition_mode": "weighted_score",            // 重み付きスコア評価
+    "min_score": 0.6,                             // 最小スコア閾値
+    "buy_conditions": {
+      "dividend_yield_min": 2.5,
+      "per_max": 20.0,
+      "pbr_max": 2.0
     }
   }
 }
 ```
+
+> **💡 設定の優先順位**: 
+> 1. **GUI内の設定** (gui_settings.json) - 実際の動作設定
+> 2. **プリセット選択** - GUI内の便利なプリセットドロップダウン
+> 3. **strategies.json** - テンプレート参照用（直接編集不要）
 
 ### 通知設定 (`config/settings.json`)
 ```json
