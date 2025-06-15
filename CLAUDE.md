@@ -8,6 +8,24 @@ Japanese Stock Watchdog (日本株ウォッチドッグ) - An automated system f
 
 ## Key Development Commands
 
+### 🔄 Development Environment Setup (重要)
+
+**開発環境**: WSL Ubuntu (/mnt/c/Users/inata/Documents/ClaudeCode/miniTest01)
+**本番環境**: Windows11 (C:\Users\inata\Documents\python\miniTest01-main)
+
+**注意**: Windows側にはGitが入っていないため、開発時は以下の手順で変更を反映：
+
+1. **WSL Ubuntu側で開発・Git管理**
+2. **変更ファイルをWindows側に自動コピー**
+3. **Windows側で動作確認**
+
+```bash
+# Windows側への変更反映コマンド（開発時に自動実行）
+cp modified_file.py "/mnt/c/Users/inata/Documents/python/miniTest01-main/path/to/file.py"
+```
+
+### 🛠️ Standard Development Commands
+
 ```bash
 # Setup virtual environment with uv (recommended)
 curl -LsSf https://astral.sh/uv/install.sh | sh  # Install uv (first time only)
